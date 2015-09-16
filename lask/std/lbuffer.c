@@ -479,11 +479,11 @@ static int lbuffer_getlstr(lua_State *L)
 }
 
 /*
-** c1, c2, c3, ... cN = buffer:getc(N = 1)
+** b1, b2, ... cN = buffer:getb(N = 1)
 **
-** read n bytes(unsigned 8-bit integer), each one is a number
+** read n unsigned 8-bits integer 
 */
-static int lbuffer_getc(lua_State *L) 
+static int lbuffer_getb(lua_State *L) 
 {
 	Buffer *buf = buffer_lcheck(L, 1);
 	size_t num = (size_t)luaL_optint(L, 2, 1);
@@ -492,16 +492,16 @@ static int lbuffer_getc(lua_State *L)
 		num = buf->datasiz;
 	
 	for (size_t i = 0; i < num; i++) {
-		lua_pushinteger(L, (int)buf->data[i]);
+		lua_pushinteger(L, buf->data[i]);
 	}
 	buffer_shift(buf, num);
 	return (int)num;
 }
 
 /*
-** w1, w2, w3, ... wN = buffer:getw(N = 1)
+** w1, w2, ... wN = buffer:getw(N = 1)
 ** 
-** read n words(unsigned 16-bit integer), each one is a number
+** read n unsigned 16-bit integer
 */
 static int lbuffer_getw(lua_State *L)
 {
@@ -522,9 +522,9 @@ static int lbuffer_getw(lua_State *L)
 }
 
 /*
-** i1, i2, i3, ... iN = reader:geti(N = 1)
+** i1, i2, .. iN = reader:geti(N = 1)
 **
-** read n integer(signed 32-bit integer), each one is a number
+** read n integer(signed 32-bit integer)
 */
 static int lbuffer_geti(lua_State *L)
 {
@@ -545,9 +545,9 @@ static int lbuffer_geti(lua_State *L)
 }
 
 /*
-** u1, u2, u3, ... uN = reader:getu(N = 1)
+** u1, u2, .. uN = reader:getu(N = 1)
 **
-** read n integer(unsigned signed 32-bit integer), each one is a number
+** read n unsigned 32-bits integers
 */
 static int lbuffer_getu(lua_State *L)
 {
@@ -560,12 +560,7 @@ static int lbuffer_getu(lua_State *L)
 		num = buf->datasiz / 4;
 	
 	for (size_t i = 0; i < num; i++) {
-		lua_Number value;
-		if (be)
-			value = (lua_Number)(bytes_to_uint32_be(p));
-		else
-			value = (lua_Number)(bytes_to_uint32_le(p));
-		lua_pushnumber(L, value);
+		lua_pushnumber(L, be ? bytes_to_uint32_be(p) : bytes_to_uint32_le(p));
 		p += 4;
 	}
 	buffer_shift(buf, 4 * num);
@@ -573,7 +568,7 @@ static int lbuffer_getu(lua_State *L)
 }
 
 /*
-** c, w, i, u, u = reader:getlist("cwiuu")
+** c, w, i = reader:getlist("cwi")
 */
 static int lbuffer_getlist(lua_State *L)
 {
@@ -616,12 +611,11 @@ static int lbuffer_getlist(lua_State *L)
 				break;
 			}
 		case 'u': {
-				if (buf->datasiz < 4)  {
+				if (buf->datasiz < 4) {
 					empty = true;
 				} else {
 					const uint8 *p = buf->data;
-					lua_pushnumber(L, be ? (lua_Number)(bytes_to_uint32_be(p)) : (lua_Number)(bytes_to_uint32_le(p)));
-					buffer_shift(buf, 4);
+					lua_pushnumber(L, (lua_Number)(be ? bytes_to_uint32_be(p) : bytes_to_uint32_le(p)));
 				}
 				break;
 			}
@@ -648,11 +642,11 @@ static int lbuffer_fill(lua_State *L)
 
 
 /*
-** self = buffer:putc(c1, c2, ... cN)
+** self = buffer:putb(b1, b2, ...)
 **
 ** push a serial of bytes(uint8) into the buffer
 */
-static int lbuffer_putc(lua_State *L)
+static int lbuffer_putb(lua_State *L)
 {
 	Buffer *buffer = buffer_lcheck(L, 1);
 	int top = lua_gettop(L);
@@ -697,7 +691,7 @@ static int lbuffer_putw(lua_State *L)
 /*
 ** self = buffer_puti(i1, i2, ... iN)
 **
-** push a serial of integers(uint32) into the buffer
+** push a serial of integers into the buffer
 */
 static int lbuffer_puti(lua_State *L)
 {
@@ -708,6 +702,32 @@ static int lbuffer_puti(lua_State *L)
 	
 	for (int i = 2; i <= top; i++) {
 		uint32 val = (uint32)luaL_checkint(L, i);
+		if (be) {
+			uint32_to_bytes_be(val, p);
+		} else {
+			uint32_to_bytes_le(val, p);
+		}
+		p += 4;
+	}
+	
+	lua_pushvalue(L, 1);
+	return 1;
+}
+
+/*
+** self = buffer_putu(u1, u2, ... uN)
+**
+** push a serial of unsigned integers into the buffer
+*/
+static int lbuffer_putu(lua_State *L)
+{
+	Buffer *buffer = buffer_lcheck(L, 1);
+	int top = lua_gettop(L);
+	uint8 *p = buffer_safegrow(buffer, (size_t)(top - 1) * 4, L);
+	bool be = buffer->be;
+	
+	for (int i = 2; i <= top; i++) {
+		uint32 val = (uint32)luaL_checknumber(L, i);
 		if (be) {
 			uint32_to_bytes_be(val, p);
 		} else {
@@ -732,7 +752,7 @@ static int lbuffer_putlist(lua_State *L)
 	
 	while (*types != 0) {
 		char type = *types++;
-		uint32 value = (uint32)luaL_checkint(L, idx++);
+		uint32 value = (uint32)luaL_checknumber(L, idx++);
 		switch (type) {
 		case 'c': {
 				uint8 *p = buffer_safegrow(buffer, 1, L);
@@ -898,16 +918,18 @@ static const luaL_Reg buffer_methods[] =  {
 	{"endlen", lbuffer_endlen},
 	{"getlstr", lbuffer_getlstr},
 	{"getline", lbuffer_getline},
-	{"getc", lbuffer_getc},
+	{"getc", lbuffer_getb},
+	{"getb", lbuffer_getb},
 	{"getw", lbuffer_getw},
 	{"geti", lbuffer_geti},
 	{"getu", lbuffer_getu},
 	{"getlist", lbuffer_getlist},
 	{"fill", lbuffer_fill},
-    {"putc", lbuffer_putc},
+    {"putc", lbuffer_putb},
+	{"putb", lbuffer_putb},
     {"putw", lbuffer_putw},
 	{"puti", lbuffer_puti},
-	{"putu", lbuffer_puti}, // just an alias
+	{"putu", lbuffer_putu}, 
 	{"putlist", lbuffer_putlist},
     {"putstr", lbuffer_putstr},
 	{"putreader", lbuffer_putreader},
