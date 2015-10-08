@@ -179,6 +179,7 @@ local function resume_all(err)
 		
 		task = ready_list
 		ready_list = false
+		err = 0  -- don't propagate error 
 	end
 end
 
