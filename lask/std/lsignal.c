@@ -30,7 +30,7 @@ static void sighandler(int sig)
 static void on_sigchld(int sig)
 {
 	int stat;
-	(void)wait(&stat);
+	while (waitpid(-1, &stat, WNOHANG) > 0);
 	unused(sig);
 }
 

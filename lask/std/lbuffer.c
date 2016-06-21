@@ -616,6 +616,7 @@ static int lbuffer_getlist(lua_State *L)
 				} else {
 					const uint8 *p = buf->data;
 					lua_pushnumber(L, (lua_Number)(be ? bytes_to_uint32_be(p) : bytes_to_uint32_le(p)));
+					buffer_shift(buf, 4);
 				}
 				break;
 			}
@@ -797,7 +798,13 @@ static int lbuffer_putstr(lua_State *L)
 	
 	for (int i = 2; i <= top; i++) {
 		size_t len;
-		const char *str = luaL_checklstring(L, i, &len);
+		const char *str = NULL;
+		if (lua_isnil(L, i)) {
+			str = "nil";
+			len = 3;
+		} else {
+			str = luaL_checklstring(L, i, &len);
+		}
 		buffer_push(buffer, str, len);
 	}
 	
@@ -1096,9 +1103,16 @@ static int lwriter_putstr(lua_State *L)
 	int top = lua_gettop(L);
 	
 	for (int i = 2; i <= top; i++) {
-		size_t len;
-		const char *str = luaL_checklstring(L, i, &len);
 		size_t left = (size_t)(wr->length - wr->cursor);
+		size_t len;
+		const char *str = NULL;
+		
+		if (lua_isnil(L, i)) {
+			str = "nil";
+			len = 3;
+		} else {
+			str = luaL_checklstring(L, i, &len);
+		}
 		
 		if (left >= len) {
 			uint8 *p = wr->buffer->data + wr->cursor + wr->offset;

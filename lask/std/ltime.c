@@ -136,28 +136,14 @@ static int ltime_strptime(lua_State *L)
 }
 
 /*
-** all, idled = time.uptime()
+** val = time.uptime()
 */
 static int ltime_uptime(lua_State *L)
 {
-	static int fd = -1;
-	char data[128];
-	double all = 0.0, idled = 0.0;
-	
-	if (fd < 0) 
-		fd = open("/proc/uptime", O_RDONLY);
-		
-	if (fd >= 0) {
-		ssize_t bytes = read(fd, data, sizeof(data));
-		if (bytes >= 0) {
-			data[bytes] = 0;
-			sscanf(data, "%lf %lf", &all, &idled);
-		}
-		lseek(fd, 0, SEEK_SET);
-	}
-	lua_pushnumber(L, (lua_Number)all);
-	lua_pushnumber(L, (lua_Number)idled);
-	return 2;
+	struct timespec ts = {0, 0};
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	lua_pushnumber(L, (lua_Number)ts.tv_sec + ts.tv_nsec / 1000000000.0);
+	return 1;
 }
 
 /*

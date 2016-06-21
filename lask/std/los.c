@@ -318,14 +318,19 @@ static int los_writeb(lua_State *L)
 	int err = 0;
 	
 	ptr.buffer = (const Buffer*)lua_touserdata(L, 2);
-	if (ptr.buffer->magic == BUFFER_MAGIC) {
-		data = ptr.buffer->data;
-		datasiz = ptr.buffer->datasiz;
-	} else if (ptr.reader->magic == READER_MAGIC) {
-		data = ptr.reader->data;
-		datasiz = ptr.reader->datasiz;
-	} else {
-		luaL_error(L, "expecting string or userdata<buffer> or userdata<reader> for argument 2");
+	if (ptr.buffer != NULL) {
+		if (ptr.buffer->magic == BUFFER_MAGIC) {
+			data = ptr.buffer->data;
+			datasiz = ptr.buffer->datasiz;
+		} else if (ptr.reader->magic == READER_MAGIC) {
+			data = ptr.reader->data;
+			datasiz = ptr.reader->datasiz;
+		} else {
+			ptr.buffer = NULL;
+		}
+	}
+	if (ptr.buffer == NULL) {
+		luaL_error(L, "expecting userdata buffer/reader for argument 2");
 	}
 	
 	length = datasiz;
@@ -391,6 +396,28 @@ static int los_fdatasync(lua_State *L)
 	int fd = luaL_checkinteger(L, 1);
 	int err = fdatasync(fd);
 	lua_pushinteger(L, err ? errno : 0);
+	return 1;
+}
+
+/*
+** err = os.truncate(filepath, length)
+*/
+static int los_truncate(lua_State *L)
+{
+	const char *filepath = luaL_checkstring(L, 1);
+	off_t off = (off_t)luaL_checkinteger(L, 2);
+	lua_pushinteger(L, truncate(filepath, off) == 0 ? 0 : errno);
+	return 1;
+}
+
+/*
+** err = os.ftruncate(filepath, length)
+*/
+static int los_ftruncate(lua_State *L)
+{
+	int fd = luaL_checkinteger(L, 1);
+	off_t off = (off_t)luaL_checkinteger(L, 2);
+	lua_pushinteger(L, ftruncate(fd, off) == 0 ? 0 : errno);
 	return 1;
 }
 
@@ -495,21 +522,27 @@ static int los_system(lua_State *L) {
 }
 
 /*
-** pid = os.fork()
+** pid, err = os.fork()
 */
 static int los_fork(lua_State *L) 
 {
-	lua_pushinteger(L, fork());
-	return 1;
+	pid_t pid = fork();
+	int err = pid < 0 ? errno : 0;
+	lua_pushinteger(L, pid);
+	lua_pushinteger(L, err);
+	return 2;
 }
 
 /*
-** pid = os.vfork()
+** pid, err = os.vfork()
 */
 static int los_vfork(lua_State *L) 
 {
-	lua_pushinteger(L, fork());
-	return 1;
+	pid_t pid = vfork();
+	int err = pid < 0 ? errno : 0;
+	lua_pushinteger(L, pid);
+	lua_pushinteger(L, err);
+	return 2;
 }
 
 /*
@@ -695,6 +728,7 @@ static int los_WEXITSTATUS(lua_State *L)
 	return 1;
 }
 
+#ifdef WIFCONTINUED
 /*
 ** value = os.WIFCONTINUED(value)
 */
@@ -704,6 +738,7 @@ static int los_WIFCONTINUED(lua_State *L)
 	lua_pushinteger(L, WIFCONTINUED(status));
 	return 1;
 }
+#endif
 
 /*
 ** value = os.WIFEXITED(value)
@@ -791,7 +826,9 @@ static const EnumReg enums[] = {
 	LENUM(O_RSYNC),
 	LENUM(O_SYNC),
 	LENUM(O_TRUNC),
+#ifdef O_CLOEXEC
 	LENUM(O_CLOEXEC),
+#endif
 	LENUM(SEEK_CUR),
 	LENUM(SEEK_SET),
 	LENUM(SEEK_END),
@@ -816,6 +853,8 @@ static const luaL_Reg funcs[] = {
 	{"fdatasync", los_fdatasync},
 	{"close", los_close},
 	{"closerange", los_closerange},
+	{"ftruncate", los_ftruncate},
+	{"truncate", los_truncate},
 	{"dup", los_dup},
 	{"dup2", los_dup2},
 	{"pipe", los_pipe},
@@ -842,7 +881,9 @@ static const luaL_Reg funcs[] = {
 	{"wait", los_wait},
 	{"waitpid", los_waitpid},
 	{"WEXITSTATUS", los_WEXITSTATUS},
+#ifdef WIFCONTINUED
 	{"WIFCONTINUED", los_WIFCONTINUED},
+#endif
 	{"WIFEXITED", los_WIFEXITED},
 	{"WIFSIGNALED", los_WIFSIGNALED},
 	{"WIFSTOPPED", los_WIFSTOPPED},
