@@ -6,11 +6,13 @@
 
 require 'std'
 
-local TO_STDOUT	= 1
+local tasklet 
+
+local TO_NULL = 0
+local TO_STDERR	= 1
 local TO_FILE	= 2
-local TO_MEMORY	= 3
-local TO_SOCKET	= 4
-local TO_SYSLOG = TO_STDOUT -- TODO
+local TO_SOCKET	= 3
+local TO_SYSLOG = TO_STDERR -- TODO
 
 local LEVEL_DEBUG = 1
 local LEVEL_INFO = 2
@@ -20,7 +22,7 @@ local LEVEL_FATAL = 5
 
 local COLOR_SUFFIX = "\027[0m"
 local LEVEL_COLOR_PREFIX = {
-	"\027[37;2m",
+	"\027[38m",
 	"\027[32m",
 	"\027[33m",
 	"\027[31m",
@@ -43,25 +45,22 @@ local LEVEL_NAME_PREFIX = {
 	'fatal*** ',
 }
 
-local log_type = os.isatty(1) and TO_STDOUT or TO_SYSLOG
+local log_type = os.isatty(1) and TO_STDERR or TO_SYSLOG
 local log_level = LEVEL_DEBUG
 local log_path
 local log_withcolor = true
 local log_withtime = true
 local log_fd = -1
+local log_flimit = -1
+local log_fsize = 0
 local log_buf = buffer.new(1024)
 local log_inited = false	
-
-local ring = false
-local ring_num = 0
-local ring_max = 0
-local ring_idx = 1
 
 local bak_fd = -1
 local bak_level
 local bak_type
 
-local log = {} 
+local M = {} 
 
 local function parse_level(level)
 	if type(level) == "string" then
@@ -93,8 +92,8 @@ end
 -- if daemonized(os.isatty(1) returns false), we use 'memory', otherwise
 -- we use 'stdout'
 --
--- thus, log.init must be called AFTER daemonized.
-function log.init(conf)
+-- thus, M.init must be called AFTER daemonized.
+function M.init(conf)
 	if log_inited then
 		return 
 	end
@@ -112,20 +111,22 @@ function log.init(conf)
 		if conf.path ~= nil then
 			log_path = string.lower(conf.path)
 		end
+		if type(conf.flimit) == 'number' and conf.flimit > 0 then
+			log_flimit = conf.flimit
+		end
+		log_fsize = conf.foffset or 0
 	end
 
 	if log_path then
-		if log_path == 'stdout' then
-			log_type = TO_STDOUT
+		if log_path == 'null' then
+			log_type = TO_NULL
+		elseif log_path == 'stderr' or log_path == 'stdout' then
+			log_type = TO_STDERR
 		elseif log_path == 'syslog' then
 			log_type = TO_SYSLOG
-		elseif log_path:find('memory') then
-			ring_max = tonumber(log_path:match('memory:(%d+)')) or 200
-			ring = table.array(ring_max)
-			log_type = TO_MEMORY 
 		else
 			log_type = TO_FILE
-			log_fd = os.open(log_path, os.O_WRONLY + os.O_APPEND)
+			log_fd = os.open(log_path, os.O_WRONLY + os.O_TRUNC)
 			if log_fd < 0 then
 				log_fd = os.creat(log_path, math.oct(644))
 			end
@@ -134,62 +135,21 @@ function log.init(conf)
 	
 	if not log_path or (log_type == TO_FILE and log_fd < 0) then
 		if os.isatty(1) then
-			log_type = TO_STDOUT
+			log_type = TO_STDERR
 		else
-			ring_max = 200
-			ring = table.array(ring_max)
-			log_type = TO_MEMORY
+			log_type = TO_NULL
 		end
 	end
 	
 	log_inited = true
-end
-
-function log.read(num)
-	if not ring then return NULL end
-	
-	local start 
-	
-	if not num or num > 0 then
-		if not num or num > ring_num then
-			num = ring_num
-		end
-
-		if ring_num == ring_max then
-			start = ring_idx
-		else
-			start = 1
-		end
-	elseif num < 0 then
-		if num < -ring_num then
-			num = -ring_num
-		end
-		
-		num = -num
-		start = ring_idx - num
-		if start < 1 then
-			start = start + ring_max
-		end
-	else
-		return NULL
-	end
-	
-	local ret = table.array(num)
-	local idx
-	for i = 1, num do 
-		idx = start + i - 1
-		if idx > ring_max then
-			idx = idx - ring_max
-		end
-		ret[i] = ring[idx]
-	end
-	return ret
+	tasklet = package.loaded.tasklet
 end
 
 -- reopen the logging file (for log-splitting)
-function log.reopen()
+function M.reopen()
 	if log_type == TO_FILE then
 		os.close(log_fd)
+		log_fsize = 0
 		log_fd = os.open(log_path, os.O_WRONLY + os.O_APPEND)
 		if log_fd < 0 then
 			log_fd = os.creat(log_path, math.oct(644))
@@ -197,7 +157,7 @@ function log.reopen()
 	end
 end
 
-function log.capture(sockpath, level)
+function M.capture(sockpath, level)
 	if log_type ~= TO_SOCKET then
 		local fd = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 		if socket.connect(fd, sockpath) == 0 then
@@ -214,7 +174,7 @@ function log.capture(sockpath, level)
 	end
 end
 
-function log.release()
+function M.release()
 	if log_type == TO_SOCKET then
 		os.close(log_fd)
 		log_fd = bak_fd
@@ -229,10 +189,14 @@ local time = time.time
 local os = os
 
 local function _log(level, ...)
+	if log_type == TO_NULL then
+		return
+	end
+	
 	local withcolor = false
 	local buf = log_buf
 
-	if (log_type == TO_STDOUT or log_type == TO_SOCKET) and log_withcolor then
+	if (log_type == TO_STDERR or log_type == TO_SOCKET) and log_withcolor then
 		withcolor = true
 	end
 	
@@ -240,7 +204,7 @@ local function _log(level, ...)
 		buf_putstr(buf, LEVEL_COLOR_PREFIX[level])
 	end
 	if log_withtime then
-		buf_putstr(buf, time_strftime('%m-%d %H:%M:%S ', time()))
+		buf_putstr(buf, tasklet and tasklet.now_4log or time_strftime('%m-%d %H:%M:%S ', time()))
 	end
 	
 	buf_putstr(buf, LEVEL_NAME_PREFIX[level])
@@ -250,49 +214,49 @@ local function _log(level, ...)
 	end
 	buf_putstr(buf, '\n')
 	
-	if log_type == TO_STDOUT then
-		os.writeb(1, buf)
-	elseif log_type == TO_MEMORY then
-		ring[ring_idx] = buf:str()
-		ring_idx = ring_idx + 1
-		if ring_idx > ring_max then
-			ring_idx = 1
-		elseif ring_num < ring_max then
-			ring_num = ring_num + 1
+	if log_type == TO_STDERR then
+		os.writeb(2, buf)
+	elseif log_fd >= 0 then		
+		if log_type == TO_FILE and log_flimit > 0 then			
+			if log_fsize >= log_flimit then
+				os.lseek(log_fd, 0, os.SEEK_SET)
+				log_fsize = 0
+			end
 		end
-	elseif log_fd >= 0 then
 		os.writeb(log_fd, buf)
+		log_fsize = log_fsize + #buf
 	end
 	buf:rewind()
 end
 
-function log.debug(...)
-	if log_level <= LEVEL_DEBUG then
+function M.debug(...)
+	if log_level <= LEVEL_DEBUG and log_type ~= TO_NULL then
 		_log(LEVEL_DEBUG, ...)
 	end
 end
 
-function log.info(...)
-	if log_level <= LEVEL_INFO then
+function M.info(...)
+	if log_level <= LEVEL_INFO and log_type ~= TO_NULL then
 		_log(LEVEL_INFO, ...)
 	end
 end
 
-function log.warn(...)
-	if log_level <= LEVEL_WARN then
+function M.warn(...)
+	if log_level <= LEVEL_WARN and log_type ~= TO_NULL then
 		_log(LEVEL_WARN, ...)
 	end
 end
 
-function log.error(...)
-	if log_level <= LEVEL_ERROR then
+function M.error(...)
+	if log_level <= LEVEL_ERROR and log_type ~= TO_NULL then
 		_log(LEVEL_ERROR, ...)
 	end
 end
 
-function log.fatal(...)
-	_log(LEVEL_FATAL, ...)
+function M.fatal(...)
+	if log_type ~= TO_NULL then
+		_log(LEVEL_FATAL, ...)
+	end
 	os.exit(1)
 end
-
-return log
+return M

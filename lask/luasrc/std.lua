@@ -354,27 +354,46 @@ function getopt(args, short, long)
 	return opts
 end
 
-function daemonize()
-	-- FIXME: maybe we should decide what to do if pid < 0
+function daemonize(openmax)
 	local pid = os.fork()
-	if pid > 0 then
-		os.exit(0)
-	end
-	pid = os.fork()
+	if pid < 0 then return false end
 	if pid > 0 then
 		os.exit(0)
 	end
 	
 	os.setsid()
+	pid = os.fork()
+	if pid > 0 then
+		os.exit(0)
+	end
+	
+	os.closerange(0, openmax or 64)
 	fs.umask(0)
 	fs.chdir('/')
-	local fd = os.open('/dev/null', os.O_RDONLY)
+	
+	if os.open('/dev/null', os.O_RDONLY) < 0 then return false end
+	os.dup(0)
+	os.dup(0)
+	return true
+end
+
+function file_get_content(filepath)
+	local fd, err = os.open(filepath, os.O_RDONLY)
+	local data
 	if fd >= 0 then
-		os.dup2(fd, 0)
-		os.dup2(fd, 1)
-		os.dup2(fd, 2)
+		data, err = os.read(fd)
 		os.close(fd)
 	end
+	return data, err
+end
+
+function file_put_content(filepath, data)
+	local fd, err = os.creat(filepath, 420)
+	if fd >= 0 then
+		_, err = os.write(fd, data)
+		os.close(fd)
+	end
+	return err
 end
 
 _G.tmpbuf = tmpbuf

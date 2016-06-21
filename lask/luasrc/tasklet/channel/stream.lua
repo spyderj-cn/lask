@@ -1,6 +1,6 @@
 
 --
--- Copyright (C) Spyderj
+-- Copyright (C) Spyder
 --
 
 
@@ -77,12 +77,14 @@ local function ch_onevents(self, fd, revents)
 	local handler = ch_evthandlers[state]
 
 	if handler then
-		local ready = handler(self, fd, revents)
-		local task = self.ch_task
-		
-		if ready and task then
-			resume_task(task)
-			self.ch_task = false
+		local r, w = handler(self, fd, revents)
+		if r and self.ch_rtask then
+			resume_task(self.ch_rtask)
+			self.ch_rtask = false
+		end
+		if w and self.ch_wtask then
+			resume_task(self.ch_wtask)
+			self.ch_wtask = false
 		end
 	elseif btest(revents, WRITE) then
 		ch_delwrite(self)
@@ -97,18 +99,18 @@ local stream_channel_meta = {
 }
 tasklet.stream_channel = stream_channel
 
-local function new_stream_channel(fd, conf)	
-	conf = conf or NULL
+local function new_stream_channel(fd, rbufsiz)	
 	local state = fd >= 0 and CH_ESTABLISHED or CH_CLOSED
 	local ch = setmetatable({
 		ch_fd = fd,
 		ch_state = state,
 		ch_err = 0,
-		ch_rbufsiz = (conf.rbufsiz or tasklet.conf.stream_rbufsiz or CONF_RBUFSIZ) ,
+		ch_rbufsiz = rbufsiz or tasklet.conf.stream_rbufsiz or CONF_RBUFSIZ ,
 		ch_rbuf = false,
 		ch_nreq = 0,
 		ch_nshift = 0,
-		ch_task = false,
+		ch_rtask = false,
+		ch_wtask = false,
 		ch_events = READ + EDGE,
 		ch_line = false,
 	}, stream_channel_meta)
@@ -118,7 +120,7 @@ end
 -- Create a stream channel piping from the output of a new process
 --
 -- 'cmd' is a system command or a callback function executed in the new process
-local function create_execl_channel(cmd, conf)
+local function create_execl_channel(cmd, rbufsiz)
 	local pid
 	local rfd, wfd, err = os.pipe()
 	if err ~= 0 then
@@ -149,7 +151,7 @@ local function create_execl_channel(cmd, conf)
 	else
 		os.close(wfd)
 		os.setnonblock(rfd)
-		local ch = new_stream_channel(rfd, conf)
+		local ch = new_stream_channel(rfd, rbufsiz)
 		add_handler(rfd, ch.ch_events, ch)
 		return ch, 0
 	end
@@ -164,9 +166,9 @@ tasklet.create_execl_channel = create_execl_channel
 -- may be in established or closed state
 --
 -- the only usage for closed channel is 'connect'
-local function create_stream_channel(fd, conf)
+local function create_stream_channel(fd, rbufsiz)
 	fd = fd or -1
-	local ch = new_stream_channel(fd, conf)
+	local ch = new_stream_channel(fd, rbufsiz)
 	if fd >= 0 then
 		os.setnonblock(fd)
 		add_handler(fd, ch.ch_events, ch)
@@ -177,7 +179,7 @@ end
 -- DEPRECATED
 tasklet.create_stream_channel = create_stream_channel
 
-function stream_channel.new(value, conf)
+function stream_channel.new(value, rbufsiz)
 	local tvalue = type(value)
 	local func = (tvalue == 'nil' or tvalue == 'number') and create_stream_channel or create_execl_channel
 	return func(value, conf)
@@ -196,11 +198,13 @@ function stream_channel:connect(addr, port, sec)
 	local fd = self.ch_fd
 	
 	if fd >= 0 then
-		error('not a closed stream_channel')
+		os.close(fd)
+		fd = -1
+		self.ch_fd = -1
 	end
 	
 	local err
-	local family = addr:find(':') and socket.AF_INET6 or socket.AF_INET
+	local family = port and (addr:find(':') and socket.AF_INET6 or socket.AF_INET) or socket.AF_UNIX
 	fd, err = socket.async_connect(addr, port, family)
 	if fd < 0 then
 		return err
@@ -219,8 +223,9 @@ function stream_channel:connect(addr, port, sec)
 		
 		local task = current_task() 
 		task.t_blockedby = self
-		self.ch_task = task
+		self.ch_rtask = task
 		err = block_task(sec or -1, task)
+		self.ch_rtask = false
 		
 		-- if err is not ETIMEDOUT, then we check the real connectd result
 		if err == 0 then
@@ -238,7 +243,9 @@ function stream_channel:connect(addr, port, sec)
 	end
 end
 
--- Return true if successfully read some data or ch_state is changed
+-- Return (updated, left) 
+--   updated: true if successfully read some data or ch_state is changed
+--   left: bytes left unread in the kernel/underlayer
 local function stream_channel_read(self, siz)
 	local rbuf = self.ch_rbuf
 	if not rbuf then
@@ -246,6 +253,7 @@ local function stream_channel_read(self, siz)
 		self.ch_rbuf = rbuf
 	end
 	
+	local left = 0
 	local fd = self.ch_fd
 	siz = siz or (self.ch_rbufsiz - #rbuf)
 	if siz > 0 then
@@ -255,7 +263,7 @@ local function stream_channel_read(self, siz)
 			if nread < siz then
 				self.ch_state = CH_ESTABLISHED
 			else
-				local left = os.getnread(fd)
+				left = os.getnread(fd)
 				if left > 0 then
 					self.ch_state = CH_READABLE
 				else
@@ -270,9 +278,9 @@ local function stream_channel_read(self, siz)
 			self.ch_state = CH_ERRORED
 			self.ch_err = err
 		end
-		return true
+		return true, left
 	else
-		return false
+		return false, left
 	end
 end
 
@@ -301,8 +309,8 @@ function stream_channel:read(bytes, sec)
 	if state == CH_CLOSED then
 		error('illegal reading on closed stream channel')
 	end
-	if self.ch_task then
-		error('another task is blocked on this channel: stream_channel is exclusively owned by one task')
+	if self.ch_rtask then
+		error('another task is reading-blocked on this stream channel')
 	end
 	if state == CH_ERRORED then
 		return nil, self.ch_err
@@ -357,7 +365,7 @@ function stream_channel:read(bytes, sec)
 			local err
 			
 			self.ch_nreq = bytes or -1
-			self.ch_task = task
+			self.ch_rtask = task
 			task.t_blockedby = self
 			
 			if sec > 0 then
@@ -367,14 +375,15 @@ function stream_channel:read(bytes, sec)
 				end
 				err = block_task(sec - elapsed)
 			elseif sec == 0 then
+				self.ch_rtask = false
 				return nil, ETIMEDOUT
 			else
 				err = block_task(sec)
 			end
 			
 			self.ch_nreq = 0
-			self.ch_task = false
 			if err ~= 0 then
+				self.ch_rtask = false
 				return nil, err
 			end
 		end
@@ -397,8 +406,8 @@ function stream_channel:write(data, sec)
 	if state == CH_CLOSED then
 		error('illegal writing on closed stream channel')
 	end
-	if self.ch_task then
-		error('another task is blocked on this channel: stream_channel is exclusively owned by one task')
+	if self.ch_wtask then
+		error('another task is writing-blocked on this stream channel')
 	end
 	if state == CH_ERRORED then
 		return self.ch_err
@@ -420,7 +429,7 @@ function stream_channel:write(data, sec)
 			offset = offset + nwritten
 			if datasiz > 0 then
 				ch_addwrite(self)
-				self.ch_task = task
+				self.ch_wtask = task
 				task.t_blockedby = self
 				
 				if sec > 0 then
@@ -433,8 +442,8 @@ function stream_channel:write(data, sec)
 					err = block_task(-1, task)
 				end
 				
-				self.ch_task = false
 				if err ~= 0 then
+					self.ch_wtask = false
 					return err
 				end
 			end
@@ -460,45 +469,49 @@ function stream_channel:close()
 end
 
 ch_evthandlers[CH_ESTABLISHED] = function (self, fd, revents)	
-	local ready = false
+	local r, w = false, false
 
 	if btest(revents, READ) then
-		local updated = stream_channel_read(self)
+		local updated, left = stream_channel_read(self)
 		local state = self.ch_state
 		
 		if btest(revents, HUP) and state > 0 then
 			state = CH_HALFCLOSED
 			self.ch_state = state
+			updated = true
 		end
 		
-		if updated and self.ch_task then
+		if updated and self.ch_rtask then
 			if state ~= CH_ERRORED and state ~= CH_HALFCLOSED then
 				local rbuf = self.ch_rbuf
 				if self.ch_nreq > 0 then 
 					if #rbuf >= self.ch_nreq then
 						-- enough bytes
-						ready = true		
+						r = true		
 					end
 				else 
 					local line = rbuf:getline()
 					if line then
 						-- got a line
 						self.ch_line = line
-						ready = true
+						r = true
 					end
 				end
 			else
 				-- must tell the task the channel is errored or half-closed
-				ready = true
+				r = true
+				if state == CH_ERRORED then
+					w = true
+				end
 			end
-		else
+		elseif left > 0 then
 			-- no task is watching and rbuf is full, make the received data stay in 
 			-- the kernel/underlayer, make a mark and next time we directly read from the kernel/underlayer
 			self.ch_state = CH_READABLE
 		end
 	elseif btest(revents, WRITE) then
-		if self.ch_task then
-			ready = true
+		if self.ch_wtask then
+			w = true
 		else
 			-- the EVT_WRITE flag stays turned-on until the task finishes all the writing.
 			-- then we'll have a write-triggered channel which is not watched, now it's time
@@ -508,8 +521,7 @@ ch_evthandlers[CH_ESTABLISHED] = function (self, fd, revents)
 			mod_handler(self.ch_fd, events)
 		end
 	end
-	
-	return ready
+	return r, w
 end
 ch_evthandlers[CH_READABLE] = ch_evthandlers[CH_ESTABLISHED]
 ch_evthandlers[CH_HALFCLOSED] = ch_evthandlers[CH_ESTABLISHED]

@@ -152,9 +152,8 @@ local builtin_commands = {
 		os.close(fd)
 	end,
 	
-	start = function ()
+	start = function (argv)
 		local appname = appctl.APPNAME
-		local bugreport_url = appctl.BUGREPORT_URL
 		local pidfile = '/tmp/' .. appname .. '.pid'
 		
 		-- may be spawned by the app itself, wait a while for the app to gracefully exit.
@@ -165,35 +164,6 @@ local builtin_commands = {
 			fs.unlink(pidfile)
 		end
 		
-		local TRACEBACK_FILE = '/tmp/' .. appname .. '.traceback'
-		local LOGDUMP_FILE = '/tmp/' .. appname .. '.logdump'
-		if fs.access(TRACEBACK_FILE, fs.R_OK) == 0 and bugreport_url then
-			local file = io.popen(appname .. ' -v', 'r')
-			if file then
-				local version = file:read('*all')
-				file:close()
-				if version then
-					version = version:match('(%S+)')
-					local file = io.popen('ajax >/dev/null 2>&1', 'w')
-					if file then
-						local settings = {
-							url = bugreport_url, 
-							type = 'POST',
-							data = {
-								['$FILE$_traceback'] = TRACEBACK_FILE,
-								version = version,
-								appname = appname,
-								['$FILE$_logdump'] = fs.access(LOGDUMP_FILE, fs.R_OK) == 0 and LOGDUMP_FILE or nil
-							}
-						}
-						file:write(require('cjson').encode(settings))
-						file:close()
-					end
-				end
-			end
-			fs.unlink(TRACEBACK_FILE)
-			fs.unlink(LOGDUMP_FILE)
-		end
 		os.execute('/etc/init.d/' .. appname .. ' start')
 	end
 }
@@ -204,23 +174,32 @@ local no_nextline = {
 
 appctl.retv_printers = {}
 
-function appctl.dispatch(argv)
+function appctl.dispatch(argv, noexit)
 	local cmd = argv[1]
+	local err = 0
 	table.remove(argv, 1)
 	
 	if builtin_commands[cmd] then
 		builtin_commands[cmd](argv)
 	else
 		local nextline = not no_nextline[cmd]
-		local err, retv = appctl.invoke(cmd, argv)
-		stderr:write('[', errno.strerror(err), ']\n')
-		if appctl.retv_printers[cmd] then
-			appctl.retv_printers[cmd](retv)
-		else
-			for _, v in ipairs(retv) do 
-				stdout:write(v, nextline and '\n' or '')
+		local retv
+		err, retv = appctl.invoke(cmd, argv)
+		err = err or 0
+		if err == 0 then
+			if appctl.retv_printers[cmd] then
+				appctl.retv_printers[cmd](retv)
+			else
+				for _, v in ipairs(retv) do 
+					stdout:write(v, nextline and '\n' or '')
+				end
 			end
+		else
+			stderr:write('[ERROR: ', errno.strerror(err), ']\n')
 		end
+	end
+	if not noexit then
+		os.exit(err)
 	end
 end
 
@@ -247,7 +226,7 @@ function appctl.interact()
 		end
 		
 		if #argv > 0 then
-			appctl.dispatch(argv)
+			appctl.dispatch(argv, true)
 		end
 	end
 end

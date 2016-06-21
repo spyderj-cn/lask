@@ -10,10 +10,10 @@ local ipairs, pairs = ipairs, pairs
 local log = require 'log'
 local tasklet = require 'tasklet'
 
-local app = {}
+local M = {}
 
 -- 
-function app.start_tcpserver_task(addr, port, cb)
+function M.start_tcpserver_task(addr, port, cb)
 	addr = addr or '0.0.0.0'
 	require 'tasklet.channel.streamserver'
 	local ch_server = tasklet.create_tcpserver_channel(addr, port) 
@@ -31,7 +31,7 @@ function app.start_tcpserver_task(addr, port, cb)
 	end)
 end
 
-function app.start_unserver_task(path, cb)
+function M.start_unserver_task(path, cb)
 	require 'tasklet.channel.streamserver'
 	local ch_server = tasklet.create_unserver_channel(path) 
 					or log.fatal('failed to start unix-domain server on ', path)
@@ -83,7 +83,7 @@ end
 --		1 \r\n
 --		3 \r\n
 --		321 \r\n
-function app.start_ctlserver_task(path, commands)
+function M.start_ctlserver_task(commands, path)
 	require 'tasklet.channel.streamserver'
 	require 'tasklet.channel.stream'
 	
@@ -93,10 +93,6 @@ function app.start_ctlserver_task(path, commands)
 	local tmpbuf = tmpbuf
 	
 	local builtin_commands = {
-		logread = function (argv)
-			return 0, log.read(tonumber(argv[1]))
-		end,
-		
 		logreopen = function (argv)
 			log.reopen()
 			return 0
@@ -114,6 +110,10 @@ function app.start_ctlserver_task(path, commands)
 		logrelease = function ()
 			log.release()
 			return 0
+		end,
+		
+		ping = function ()
+			return 0, 'pong'
 		end,
 	}
 	
@@ -187,7 +187,7 @@ function app.start_ctlserver_task(path, commands)
 	end
 	
 	local function ctl_loop(fd)
-		local ch = tasklet.create_stream_channel(fd, {rbufmax=1024})
+		local ch = tasklet.create_stream_channel(fd, 1024)
 		local captured = false
 		while true do 
 			local cmd, argv = getreq(ch)
@@ -199,7 +199,7 @@ function app.start_ctlserver_task(path, commands)
 			if commands[cmd] then
 				err, retv = commands[cmd](argv)
 			end
-
+			err = err or 0
 			if err == 0 then
 				if cmd == 'logcapture' then
 					captured = true
@@ -216,73 +216,106 @@ function app.start_ctlserver_task(path, commands)
 		end
 	end
 	
+	path = path or M.APPNAME or log.fatal("specify 'path' in start_ctlserver_task")
 	if not path:find('/') then
 		path = '/tmp/' .. path .. '.sock'
 	end
-	return app.start_unserver_task(path, ctl_loop)
+	return M.start_unserver_task(path, ctl_loop)
 end
 
-function app.run()
-	local appname = app.APPNAME
-	local pidfile = appname and '/tmp/' .. appname .. '.pid'
-
-	if pidfile then 
-		local pid = os.getpid()
-		local file = io.open(pidfile, 'w')
-		if file then
-			file:write(pid)
-			file:close()
-		end
+local function parse_flimit(value)
+	local x, unit = value:match('^([%d%.]+)([kKmM]?)$')
+	x = tonumber(x)
+	if not x then
+		return 
 	end
 	
-	local function on_sigquit() tasklet.quit() end
-	local function on_sigterm() tasklet.term() end
-	signal.signal(signal.SIGINT, on_sigterm)
-	signal.signal(signal.SIGTERM, on_sigterm)
-	signal.signal(signal.SIGQUIT, on_sigquit)
+	if unit == 'k' or unit == 'K' then
+		return x * 1024
+	elseif unit == 'm' or unit == 'M' then
+		return x * 1024 * 1024
+	else
+		return x
+	end
+end
+
+function M.run(opts, cb_preloop)
+	-- check APPNAME
+	local appname = M.APPNAME
+	if not appname then
+		log.fatal('APPNAME shall never be empty')
+	end
 	
+	-- daemonize
+	local DEBUG = false
+	if opts.debug or opts.d then
+		DEBUG = true
+	end
+	if not opts.f and not opts.foreground and not DEBUG then
+		daemonize()
+	end
+
+	-- make pid file
+	local pid = os.getpid()
+	local pidfile = '/tmp/' .. appname .. '.pid'
+	local file = io.open(pidfile, 'w')
+	if file then
+		file:write(pid)
+		file:close()
+	end
+	
+	-- init log
+	local deffile = '/tmp/' .. appname .. '.log'
+	opts.logpath = opts.logpath or opts.o
+	opts.loglevel = opts.loglevel or opts.l
+	local logpath = opts.logpath or (DEBUG and 'stdout' or deffile)
+	if logpath == deffile then
+		if fs.exists(deffile) then
+			fs.rename(deffile, deffile .. '.bak')
+		end
+	end
+	log.init({
+		path = logpath,
+		level = opts.loglevel or (DEBUG and 'debug' or 'info'),
+		flimit = opts.logflimit and parse_flimit(opts.logflimit) or 31 * 1024
+	})
+	M.DEBUG = DEBUG
+	log.info('application started with pid ', pid)
+	
+	-- signals 
+	signal.signal(signal.SIGTERM, function ()
+		log.info('got SIGTERM, terminating ...')
+		tasklet.term() 
+	end)
+	signal.signal(signal.SIGQUIT, function ()
+		log.info('got SIGQUIT, quitting ...')
+		tasklet.quit() 
+	end)
+	signal.signal(signal.SIGINT, function () tasklet.term() end)
+	
+	-- looping and cleanup
+	if cb_preloop then
+		cb_preloop()
+	end
 	local ok, msg = xpcall(tasklet.loop, debug.traceback)
 	local exitcode = 0
 	if not ok then
-		if app.DEBUG then
+		if DEBUG then
 			print(msg)
-		elseif appname then
-			local TRACEBACK_FILE = '/tmp/' .. appname .. '.traceback'
-			local LOGDUMP_FILE = '/tmp/' .. appname .. '.logdump'
-			local file = io.open(TRACEBACK_FILE, 'w')
+		else
+			local death_file = '/tmp/' .. appname .. '.death'
+			local file = io.open(death_file, 'w')
 			if file then
-				file:write(msg)
+				file:write(tasklet.now_4log, '\n', msg)
 				file:close()
-			end
-			
-			local logs = log.read()
-			if logs and #logs > 0 then
-				file = io.open(LOGDUMP_FILE, 'w')
-				if file then
-					for _, v in ipairs(logs) do 
-						file:write(v)
-					end
-					file:close()
-				end
-			end
-		
-			if app.APPCTL then
-				time.sleep(15)
-				if os.fork() == 0 then
-					time.sleep(0.5)  -- Let the parent go first.
-					os.execute(app.APPCTL .. ' start >/dev/null 2>&1 &')
-					os.exit(0)
-				end
 			end
 		end
 		exitcode = 1
 	end
-
-	if pidfile then
-		fs.unlink(pidfile)
-	end
+	fs.unlink(pidfile)
+	
 	return exitcode
 end
 
-return app
+return M
 

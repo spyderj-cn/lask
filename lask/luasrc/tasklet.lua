@@ -14,6 +14,7 @@ local co_yield, co_resume, co_status = coroutine.yield, coroutine.resume, corout
 local btest = bit32.btest
 local ETIMEDOUT, EAGAIN, EINTR = errno.ETIMEDOUT, errno.EAGAIN, errno.EINTR
 local tonumber2 = tonumber2
+local mfloor = math.floor
 
 local poll = poll
 local READ = poll.IN
@@ -28,7 +29,7 @@ local assert = assert
 -------------------------------------------------------------------------------
 -- variables {
 
-local poll_fd = poll.create()
+local poll_fd = -1
 
 -- {[fd]=handler} for all the registered file descriptors.
 local handler_set = {}
@@ -107,7 +108,12 @@ local function do_yield(sec)
 				sec_towait = 1000
 			end
 			
-			local timestamp = math.floor(1000000 * (tasklet.now - tm_baseline + sec_towait) + tm_salt)
+			local diff = tasklet.now - tm_baseline + sec_towait
+			if diff > 2000 or diff < 0 then
+				error(string.format('tasklet iteration corrupted: now=%f, tm_baseline=%f, sec_towait=%d', 
+					tasklet.now, tm_baseline, sec_towait))
+			end
+			local timestamp = mfloor(1000000 * diff) + tm_salt
 			rb_timer:insert(timestamp, task_id)
 			task.t_timerkey = timestamp 
 			
@@ -121,15 +127,9 @@ local function do_yield(sec)
 			end
 			
 			err = co_yield()
-			if err == EINTR and task.on_signal then
-				task.on_signal(task, task.t_sig)
-			end
 		end
 	else
 		err = co_yield()
-		if err == EINTR and task.on_signal then
-			task.on_signal(task, task.t_sig)
-		end
 	end
 	return err or 0
 end
@@ -153,11 +153,9 @@ local function do_resume(co, errcode)
 end
 
 -- Resume all tasks in ready_list
-local function resume_all(err)
+local function resume_list()
 	local task = ready_list
-	
 	ready_list = false
-	err = err or 0
 
 	local next, co
 	while task do 
@@ -166,12 +164,8 @@ local function resume_all(err)
 			next = task.t_next
 			task.t_next = false
 	
-			if task.t_timerkey then
-				rb_timer:del(task.t_timerkey, tonumber2(co))
-				task.t_timerkey = false
-			end
 			if tasks[tonumber2(co)] then
-				do_resume(co, err)
+				do_resume(co, 0)
 			end
 			
 			task = next
@@ -179,7 +173,6 @@ local function resume_all(err)
 		
 		task = ready_list
 		ready_list = false
-		err = 0  -- don't propagate error 
 	end
 end
 
@@ -196,6 +189,11 @@ local function push_ready(task)
 	end
 	task.t_blockedby = false
 	task.t_next = false
+	
+	if task.t_timerkey then
+		rb_timer:del(task.t_timerkey, tonumber2(task.t_co))
+		task.t_timerkey = false
+	end
 end
 
 function tasklet.init(conf)
@@ -210,6 +208,9 @@ end
 --		the return value is ignored.
 --  Note that 'revents' may not exactly equal to 'events'
 function tasklet.add_handler(fd, events, handler)
+	if poll_fd < 0 then
+		poll_fd = poll.create()
+	end
 	poll.add(poll_fd, fd, events)
 	handler_set[fd + 1] = handler
 end
@@ -281,37 +282,15 @@ function tasklet.reap_task(task)
 	end
 end
 
--- Send the task a signal
--- will invoke the task's 'on_signal' field, if it has one.
-function tasklet.kill_task(task, sig)
-	local co = task.t_co
-	
-	if not tasks[tonumber2(co)] then
-		error('unable to notify a dead task')
-	end
-	
-	task.t_sig = sig
-	do_resume(co, EINTR)
-	task.t_sig = NULL
-end
-
-
 -- Make the current task sleep for a while.
 -- 
--- 'sec' indicates how long should the task sleep, and if 'sec' < 0,
--- 		then the task sleeps until it receives a notification.
+-- 'sec' indicates how long should the task sleep in seconds.
 -- 
--- The function takes no effect if sec == 0.
+-- The function takes no effect if sec <= 0.
 function tasklet.sleep(sec)
 	local task = tasks[tonumber2()]
-	sec = sec or -1
-	if sec > 0 then
+	if sec and sec > 0 then
 		do_yield(sec, task)
-	elseif sec < 0 then
-		co_yield()
-		if task.on_signal then
-			task.on_signal(task, task.t_sig)
-		end
 	end
 end
 
@@ -353,7 +332,9 @@ local function update_time()
 		end
 	end
 	tasklet.now = now
-	tasklet.now_unix = time.time()
+	local now_unix = time.time()
+	tasklet.now_unix = now_unix
+	tasklet.now_4log = time.strftime('%m-%d %H:%M:%S ', now_unix)
 	tm_salt = 0
 	if cb_updatedtime then
 		cb_updatedtime(now)
@@ -368,9 +349,13 @@ function tasklet.loop()
 	local wait_ret 
 	local tm_nearest, tm_wait, tm_elapsed
 	
+	if poll_fd < 0 then
+		poll_fd = poll.create()
+	end
+	
 	if ready_list then
 		update_time()
-		resume_all()
+		resume_list()
 	end
 
 	local nemod = tasklet._nonevent_modules
@@ -381,7 +366,7 @@ function tasklet.loop()
 		for _, module in ipairs(nemod) do 
 			module()
 			while ready_list do 
-				resume_all()
+				resume_list()
 				module()
 			end
 		end
@@ -414,7 +399,7 @@ function tasklet.loop()
 					handler(fd, revents)
 				end
 			end
-			resume_all()
+			resume_list()
 		end
 		-----------------------------------------------------------------------------}
 		
@@ -431,12 +416,13 @@ function tasklet.loop()
 			local task = tasks[task_id]
 			if task then
 				task.t_timerkey = false
-				push_ready(task)
+				do_resume(task.t_co, ETIMEDOUT)
 			end
-			
 			timerkey, task_id = rb_timer:delmin(tm_elapsed)
 		end
-		resume_all(ETIMEDOUT)
+		if ready_list then
+			resume_list()
+		end
 		-----------------------------------------------------------------------------}
 	end
 	
