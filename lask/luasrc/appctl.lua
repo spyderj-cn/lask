@@ -1,6 +1,6 @@
 
 --
--- Copyright (C) Spyderj
+-- Copyright (C) spyder
 --
 
 require 'std'
@@ -62,7 +62,13 @@ end
 function appctl.invoke(cmd, argv)
 	if fd < 0 then
 		fd = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+		os.setnonblock(fd)
 		local err = socket.connect(fd, '/tmp/' .. appctl.APPNAME .. '.sock')
+		if err ~= 0 then
+			if err == errno.EINPROGRESS and poll.waitfd(fd, 'rw', 1) then
+				err = socket.getsocketopt(fd, socket.SO_ERROR)
+			end
+		end
 		if err ~= 0 then
 			stderr:write('failed to connect ', appctl.APPNAME, ', abort\n')
 			os.exit(1)
@@ -70,7 +76,7 @@ function appctl.invoke(cmd, argv)
 	end
 	
 	putreq(cmd, argv)
-	if not poll.waitrfd(fd, 3) then
+	if not poll.waitrfd(fd, 1) then
 		stderr:write('timed out for the response, abort\n')
 		os.exit(1)
 	end

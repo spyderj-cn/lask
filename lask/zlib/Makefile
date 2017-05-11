@@ -4,11 +4,10 @@ INSTALL ?= install
 
 .phony : all clean
 
-all : zlib.so
+all : _zlib.so
 
-zlib.so : $(OBJS)
+_zlib.so : $(OBJS)
 	$(CC) -o $@ $(OBJS) $(LDFLAGS) -lz
-	
-clean : 
-	@rm -f zlib.so *.o
 
+clean :
+	@rm -f _zlib.so *.o

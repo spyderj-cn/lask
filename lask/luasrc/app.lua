@@ -1,6 +1,6 @@
 
 --
--- Copyright (C) Spyderj
+-- Copyright (C) spyder
 --
 
 local string, table, os = string, table, os
@@ -28,7 +28,7 @@ function M.start_tcpserver_task(addr, port, cb)
 				cb(fd, addr, port)
 			end
 		end
-	end)
+	end, 'tcpserver@' .. addr .. ':' .. port)
 end
 
 function M.start_unserver_task(path, cb)
@@ -45,7 +45,7 @@ function M.start_unserver_task(path, cb)
 				cb(fd)
 			end
 		end
-	end)
+	end, 'unserver@' .. path)
 end
 
 -- there is a simple text protocol between the ctlserver and the ctltool
@@ -114,6 +114,19 @@ function M.start_ctlserver_task(commands, path)
 		
 		ping = function ()
 			return 0, 'pong'
+		end,
+		
+		eval = function (argv)
+			local text = argv[1]
+			local msg
+			if text then
+				local func
+				func, msg = loadstring(text)
+				if func then
+					_, msg = pcall(func)
+				end
+			end
+			return 0, msg
 		end,
 	}
 	
@@ -220,7 +233,11 @@ function M.start_ctlserver_task(commands, path)
 	if not path:find('/') then
 		path = '/tmp/' .. path .. '.sock'
 	end
-	return M.start_unserver_task(path, ctl_loop)
+	return M.start_unserver_task(path, function (fd)
+		tasklet.start_task(function ()
+			ctl_loop(fd)
+		end, 'general-ctlserver-conn')
+	end)
 end
 
 local function parse_flimit(value)
@@ -297,6 +314,7 @@ function M.run(opts, cb_preloop)
 	if cb_preloop then
 		cb_preloop()
 	end
+	log.info('looping start')
 	local ok, msg = xpcall(tasklet.loop, debug.traceback)
 	local exitcode = 0
 	if not ok then

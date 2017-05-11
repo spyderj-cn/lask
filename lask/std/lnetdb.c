@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) Spyderj
+ * Copyright (C) spyder
  */
 
 
@@ -19,11 +19,11 @@ static int lnetdb_gethostbyname(lua_State *L)
 {
 	const char *name = luaL_checkstring(L, 1);
 	struct hostent *h = gethostbyname(name);
-	
+
 	if (h != NULL) {
 		int num;
 		char addr_str[60];
-		
+
 		lua_createtable(L, 3, 0);
 		lua_pushstring(L, h->h_name);
 		lua_rawseti(L, -2, 1);
@@ -39,7 +39,7 @@ static int lnetdb_gethostbyname(lua_State *L)
 			num++;
 		}
 		lua_rawseti(L, -2, 2);
-		
+
 		num = 0;
 		for (char **pptr = h->h_addr_list; *pptr != NULL; pptr++)
 			num++;
@@ -67,13 +67,13 @@ static int lnetdb_getaddrbyname(lua_State *L)
 {
 	const char *name = luaL_checkstring(L, 1);
 	struct hostent *h = gethostbyname(name);
-	
+
 	if (h != NULL) {
 		int num = 0;
-		
+
 		for (char **pptr = h->h_addr_list; *pptr != NULL; pptr++)
 			num++;
-			
+
 		if (num > 0) {
 			char addr_str[60];
 			lua_createtable(L, num, 0);
@@ -100,7 +100,7 @@ static int lnetdb_getaddrbyname(lua_State *L)
 */
 static int lnetdb_strerror(lua_State *L)
 {
-	int err = luaL_checkint(L, 1);
+	int err = (int)luaL_checkinteger(L, 1);
 	lua_pushstring(L, gai_strerror(err));
 	return 1;
 }

@@ -1,6 +1,6 @@
 
 --
--- Copyright (C) Spyderj
+-- Copyright (C) spyder
 --
 
 
@@ -10,15 +10,27 @@ local block_task, resume_task, current_task = tasklet._block_task, tasklet._resu
 local error = error
 local ETIMEDOUT, EAGAIN = errno.ETIMEDOUT, errno.EAGAIN
 
--- XXX: maybe a light user data is better 
-local MARK_NOT_IN_CHAIN = 0xf0403023 
+-- XXX: maybe a light user data is better
+local MARK_NOT_IN_CHAIN = 0xf0403023
 
 local svc_reqing, svc_resping = false, false
 
 local svc_byname = {}
 
--- double-link list(except that tail.next is false instead of head)
--- obj is the object holding the task list
+
+--[[
+tasks are links as:
+
+                 t_svcnext
+	+-------+   ------------>          +-------+ -----> false
+    | task1 |                   ....   | taskN |
+    +-------+   <------------          +-------+
+      |             t_svcprev               A
+      |                                     |
+	  +-------------------------------------+
+	            t_svcprev
+]]
+
 local function push_task(obj, head_field, task)
 	local head = obj[head_field]
 	if head then
@@ -53,11 +65,11 @@ local function serve(owner, svc)
 		owner.t_blockedby = svc
 		block_task(-1)
 	end
-	
+
 	local task = svc.svc_taskq
 	svc.svc_tmhandle = tasklet.now
 	local resp, err = svc.svc_handler(svc, task.t_svcreq)
-	
+
 	-- the requesting task may have timed out (removed from task queue)
 	-- so we need to check it first.
 	if task == svc.svc_taskq then
@@ -88,7 +100,7 @@ local function multi_serve(owner, svc, num, sec)
 	if nhandle > num then
 		nhandle = num
 	end
-	
+
 	if nhandle > 0 then
 		local task = svc.svc_taskq
 		local reqarr = svc.svc_reqarr
@@ -96,7 +108,7 @@ local function multi_serve(owner, svc, num, sec)
 		local taskarr = svc.svc_taskarr
 		local errarr = svc.svc_errarr
 
-		for i = 1, nhandle do 
+		for i = 1, nhandle do
 			reqarr[i] = task.t_svcreq
 			resparr[i] = nil
 			errarr[i] = 0
@@ -104,7 +116,7 @@ local function multi_serve(owner, svc, num, sec)
 			taskarr[i] = task
 			task = task.t_svcnext
 		end
-		
+
 		svc.svc_nreq = svc.svc_nreq - nhandle
 		if task then
 			task.t_svcprev = svc.svc_taskq.t_svcprev
@@ -112,27 +124,27 @@ local function multi_serve(owner, svc, num, sec)
 		else
 			svc.svc_taskq = false
 		end
-		
+
 		svc.svc_tmhandle = tasklet.now
 		svc.svc_nhandle = nhandle
 		svc.svc_handler(reqarr, svc.svc_resparr, errarr, nhandle)
-		
+
 		svc.svc_inresping = true
 		svc.svc_next = svc_resping
 		svc_resping = svc
 	end
 end
 
--- cb is running in a separate task 
+-- cb is running in a separate task
 function tasklet.create_service(name, cb)
 	if svc_byname[name] then
 		error('service ' .. name .. ' already exists')
 	end
-	
+
 	local svc = {
-		svc_name = name,  
+		svc_name = name,
 		svc_owner = false,
-		svc_taskq = false,  -- queued tasks that are requesting 
+		svc_taskq = false,  -- queued tasks that are requesting
 		svc_resp = false,
 		svc_next = false,
 		svc_task = false,
@@ -141,9 +153,9 @@ function tasklet.create_service(name, cb)
 		svc_inresping = false,
 		svc_handler = cb,
 	}
-	svc.svc_owner = tasklet.start_task(function () 
+	svc.svc_owner = tasklet.start_task(function ()
 		local owner = tasklet.current_task()
-		while true do 
+		while true do
 			serve(owner, svc)
 		end
 	end)
@@ -155,7 +167,7 @@ function tasklet.create_multi_service(name, cb, max_concurrent, interval)
 	if svc_byname[name] then
 		error('service ' .. name .. ' already exists')
 	end
-	
+
 	local svc = {
 		svc_name = name,
 		svc_owner = false,
@@ -168,8 +180,8 @@ function tasklet.create_multi_service(name, cb, max_concurrent, interval)
 		svc_tmhandle = false,
 		svc_nhandle = false,
 		svc_nwait = 0x7fffffff,
-		svc_taskq = false, -- requesting task list 
-		svc_nreq = 0,   -- number of elements of requesting task list 
+		svc_taskq = false, -- requesting task list
+		svc_nreq = 0,   -- number of elements of requesting task list
 		svc_next = false,
 		svc_handler = cb,
 	}
@@ -177,7 +189,7 @@ function tasklet.create_multi_service(name, cb, max_concurrent, interval)
 	svc.svc_owner = tasklet.start_task(function ()
 		local owner = tasklet.current_task()
 		interval = interval or 1
-		while true do 
+		while true do
 			multi_serve(owner, svc, max_concurrent, interval)
 		end
 	end)
@@ -186,22 +198,20 @@ end
 
 local function service_request(svc, req, sec)
 	local task = current_task()
-	
+
 	-- if owner is serving-blocked, put svc in the svc_reqing chain to resume the owner later
 	if not svc.svc_next and not svc.svc_inreqing and svc.svc_owner.t_blockedby == svc then
 		svc.svc_next = svc_reqing
 		svc_reqing = svc
 		svc.svc_inreqing = true
 	end
-	
-	sec = sec or -1
-	
+
 	-- push the current task in the waiting task queue
 	task.t_svcreq = req
 	task.t_svcreqtime = tasklet.now
 	task.t_blockedby = svc
 	push_task(svc, 'svc_taskq', task)
-	
+
 	local err = block_task(sec or -1)
 	if err == 0 then
 		return task.t_svcresp, task.t_err
@@ -217,20 +227,20 @@ end
 -- return the response from the service-provider or nil if timed out
 local function multi_service_request(svc, req, sec)
 	local task = current_task()
-	
+
 	task.t_svcreq = req
 	task.t_svcreqtime = tasklet.now
 	push_task(svc, 'svc_taskq', task)
 	task.t_blockedby = svc
-	
+
 	svc.svc_nreq = svc.svc_nreq + 1
-	if not svc.svc_next and not svc.svc_inreqing 
+	if not svc.svc_next and not svc.svc_inreqing
 		and svc.svc_nreq >= svc.svc_nwait and svc.svc_owner.t_blockedby == svc then
 		svc.svc_inreqing = true
 		svc.svc_next = svc_reqing
 		svc_reqing = svc
 	end
-	
+
 	local err = block_task(sec or -1)
 	if err == 0 then
 		return task.t_svcresp, task.t_err
@@ -259,13 +269,13 @@ function tasklet.find_service(name)
 end
 
 local function service_schedule()
-	local svc = svc_reqing 
+	local svc = svc_reqing
 	local busy_list = false
 	local task, next
-	while svc do 
+	while svc do
 		next = svc.svc_next
 		task = svc.svc_owner
-		if task.t_blockedby == svc then  -- owner task is available 
+		if task.t_blockedby == svc then  -- owner task is available
 			svc.svc_next = false
 			svc.svc_inreqing = false
 			resume_task(task)
@@ -276,12 +286,12 @@ local function service_schedule()
 		svc = next
 	end
 	svc_reqing = busy_list
-	
+
 	svc = svc_resping
-	while svc do 
+	while svc do
 		next = svc.svc_next
-		
-		if svc.svc_nwait then   -- a multi service 
+
+		if svc.svc_nwait then   -- a multi service
 			if not svc.svc_inreqing and svc.svc_nreq >= svc.svc_nwait then
 				svc.svc_next = svc_reqing
 				svc_reqing = svc
@@ -289,13 +299,13 @@ local function service_schedule()
 			else
 				svc.svc_next = false
 			end
-			
+
 			local taskarr = svc.svc_taskarr
 			local resparr = svc.svc_resparr
 			local errarr = svc.svc_errarr
 			local n = svc.svc_nhandle
 			local tm = svc.svc_tmhandle
-			for i = 1, n do 
+			for i = 1, n do
 				task = taskarr[i]
 				if task.t_blockedby == svc then
 					local reqtime = task.t_svcreqtime
@@ -314,18 +324,18 @@ local function service_schedule()
 			else
 				svc.svc_next = false
 			end
-			
+
 			local task = svc.svc_task
 			if task.t_blockedby == svc then
 				local reqtime = task.t_svcreqtime
 				if reqtime and reqtime <= svc.svc_tmhandle then
-					task.t_svcresp = svc.svc_resp 
+					task.t_svcresp = svc.svc_resp
 					resume_task(task)
 				end
 			end
 		end
-		
-		svc.svc_inresping = false	
+
+		svc.svc_inresping = false
 		svc = next
 	end
 	svc_resping = false

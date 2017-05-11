@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) Spyderj
+ * Copyright (C) spyder
  */
 
 #include "common.h"
@@ -20,7 +20,7 @@ typedef struct _Object {
 static int l_new(lua_State *L)
 {
 	const char *str = luaL_checkstring(L, 1);
-	SSL_METHOD *method;
+	const SSL_METHOD *method;
 	SSL_CTX *ctx;
 	
 	if (strcasecmp(str, "sslv3") == 0)
@@ -146,7 +146,7 @@ static int l_set_cipher_list(lua_State *L)
 */
 static int l_set_verify(lua_State *L)
 {
-	SSL_CTX_set_verify(getctx(L), luaL_checkint(L, 2), NULL);	
+	SSL_CTX_set_verify(getctx(L), (int)luaL_checkinteger(L, 2), NULL);	
 	lua_pushinteger(L, 0);
 	return 1;
 }
@@ -156,7 +156,7 @@ static int l_set_verify(lua_State *L)
 */
 static int l_set_verify_depth(lua_State *L)
 {
-	SSL_CTX_set_verify_depth(getctx(L), luaL_checkint(L, 2));
+	SSL_CTX_set_verify_depth(getctx(L), (int)luaL_checkinteger(L, 2));
 	lua_pushinteger(L, 0);
 	return 1;
 }
@@ -166,7 +166,7 @@ static int l_set_verify_depth(lua_State *L)
 */
 static int l_set_options(lua_State *L)
 {
-	SSL_CTX_set_options(getctx(L), luaL_checkint(L, 2));	
+	SSL_CTX_set_options(getctx(L), (int)luaL_checkinteger(L, 2));	
 	lua_pushinteger(L, 0);
 	return 1;
 }
@@ -214,10 +214,10 @@ SSL_CTX* l_getcontext(lua_State *L, int idx)
 int l_opencontext(lua_State *L)
 {
 	lua_newtable(L);  		
-	luaL_register(L, NULL, methods);
+	luaL_setfuncs(L, methods, 0);
 	
 	luaL_newmetatable(L, META_NAME);
-	luaL_register(L, NULL, meta_funcs);
+	luaL_setfuncs(L, meta_funcs, 0);
 	lua_pushstring(L, "__index");
 	lua_pushvalue(L, -3);
 	lua_settable(L, -3);

@@ -660,7 +660,7 @@ static void json_append_data(lua_State *l, json_config_t *cfg, strbuf_t *json)
         break;
     case LUA_TTABLE:
         len = lua_array_length(l, cfg);
-        if (len > 0)
+        if (len >= 0)
             json_append_array(l, cfg, json, len);
         else
             json_append_object(l, cfg, json);
@@ -1349,7 +1349,7 @@ int luaopen_cjson(lua_State *l)
     lua_settable(l, LUA_REGISTRYINDEX);
 
     lua_newtable(l);
-	luaL_register(l, NULL, reg);
+	luaL_setfuncs(l, reg, 0);
 
     /* Set cjson.null */
     lua_pushlightuserdata(l, NULL);

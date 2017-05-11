@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) Spyderj
+ * Copyright (C) spyder
  */
 
 #ifndef LSTDIMPL_H
@@ -23,8 +23,6 @@
 #include <time.h>
 #include <sys/time.h>
 #include <sys/types.h>
-#include <lua.h>
-#include <lauxlib.h>
 
 #if LUA_VERSION_NUM == 501
 #define lua_rawlen		lua_objlen
@@ -135,7 +133,7 @@ int  		fcntl_addfl(int fd, int flags);
 int 		fcntl_delfl(int fd, int flags);
 
 int 		os_getnread(int fd, size_t *nread);
-int 		os_implread(int fd, Buffer *buffer, ssize_t req, size_t *done, 
+int 		os_implread(int fd, Buffer *buffer, ssize_t req, size_t *done,
 				ssize_t (*read_cb)(int, void*, size_t, void*), void* ud);
 int 		os_read(int fd, Buffer *buffer, ssize_t bytes_req, size_t *bytes_done);
 int 		os_implwrite(int fd, const uint8 *mem, size_t bytes_req, size_t *bytes_done,
@@ -186,5 +184,9 @@ int 		l_openpoll(lua_State *L);
 int 		l_openprctl(lua_State *L);
 int 		l_openrbtree(lua_State *L);
 int 		l_openiface(lua_State *L);
+
+#if LUA_VERSION_NUM == 501
+void luaL_setfuncs (lua_State *L, const luaL_Reg *l, int nup);
+#endif
 
 #endif

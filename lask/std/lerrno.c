@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) Spyderj
+ * Copyright (C) spyder
  */
 
 
@@ -97,7 +97,7 @@ typedef struct _Desc {
 #define DESC(err, desc)		{err, desc}
 
 static const Desc descs[] = {
-	DESC(ESUCCEED, "Succeed"), 	
+	DESC(ESUCCEED, "Succeed"),
 	DESC(E2BIG, "Argument list too long"),
 	DESC(EACCES, "Permission denied"),
 	DESC(EADDRINUSE, "Address in use"),
@@ -192,16 +192,16 @@ static int lerrno_errno(lua_State *L)
 /*
 ** str = errno.strerror(err)
 */
-static int lerrno_strerror(lua_State *L) 
+static int lerrno_strerror(lua_State *L)
 {
-	int err = luaL_optint(L, 1, -1);
+	int err = (int)luaL_optinteger(L, 1, -1);
 	const Desc *p = descs;
 	const char *text = NULL;
 	char unknown[32];
 	
 	if (err < 0)
 		err = errno;
-	
+
 	while (p->text != NULL) {
 		if (p->err == err) {
 			text = p->text;
@@ -209,12 +209,12 @@ static int lerrno_strerror(lua_State *L)
 		}
 		p++;
 	}
-	
+
 	if (text == NULL) {
 		snprintf(unknown, sizeof(unknown), "Unknown error (%d)", err);
 		text = unknown;
 	}
-	
+
 	lua_pushstring(L, text);
 	return 1;
 }
@@ -225,7 +225,7 @@ static const luaL_Reg funcs[]  ={
 	{NULL, NULL}
 };
 
-int l_openerrno(lua_State *L) 
+int l_openerrno(lua_State *L)
 {
 	l_register_lib(L, "errno", funcs, enums);
 	return 0;

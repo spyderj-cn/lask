@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) Spyderj
+ * Copyright (C) spyder
  */
 
 typedef struct _ConstReg {
@@ -43,7 +43,9 @@ static const ConstReg consts[] = {
 	CONST(MODE_ENABLE_PARTIAL_WRITE),
 	CONST(MODE_ACCEPT_MOVING_WRITE_BUFFER),
 	CONST(MODE_AUTO_RETRY),
+#ifdef SSL_MODE_RELEASE_BUFFERS
 	CONST(MODE_RELEASE_BUFFERS),
+#endif
 	
 	CONST(ERROR_NONE),
 	CONST(ERROR_WANT_READ),

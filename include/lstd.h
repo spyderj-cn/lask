@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) Spyderj
+ * Copyright (C) spyder
  */
 
 #ifndef LSTD_H
@@ -13,6 +13,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <lua.h>
+#include <lauxlib.h>
 
 #define BUFFER_META				"meta(buffer)"
 #define BUFFER_MAGIC 			1437549501
@@ -39,8 +41,18 @@ typedef struct _BufferCFunc {
 	void (*finalize)(Buffer *buf);
 }BufferCFunc;
 
-#if STD_SELF
-#else
+#define READER_META				"meta(reader)"
+#define READER_MAGIC 			1437549502
+typedef struct _Reader {
+	uint32_t magic;
+	const uint8_t *mem;
+	const uint8_t *data;
+	size_t memsiz;
+	size_t datasiz;
+	bool be;
+}Reader;
+
+#if !STD_SELF
 extern BufferCFunc *buf_cfunc;
 #define	buffer_initcfunc(L) do { \
 	lua_getglobal(L, "buffer"); \
@@ -60,16 +72,23 @@ extern BufferCFunc *buf_cfunc;
 #define buffer_finalize		(buf_cfunc->finalize)
 #endif
 
-#define READER_META				"meta(reader)"
-#define READER_MAGIC 			1437549502
-typedef struct _Reader {
-	uint32_t magic;
-	const uint8_t *mem;
-	const uint8_t *data;
-	size_t memsiz;
-	size_t datasiz;
-	bool be;
-}Reader;
+#if LUA_VERSION_NUM == 501
+#if !STD_SELF 
+static void luaL_setfuncs (lua_State *L, const luaL_Reg *l, int nup) {
+  luaL_checkstack(L, nup, "too many upvalues");
+  for (; l->name != NULL; l++) {  /* fill the table with given functions */
+    int i;
+    for (i = 0; i < nup; i++)  /* copy upvalues to the top */
+      lua_pushvalue(L, -nup);
+    lua_pushcclosure(L, l->func, nup);  /* closure with those upvalues */
+    lua_setfield(L, -(nup + 2), l->name);
+  }
+  lua_pop(L, nup);  /* remove upvalues */
+}
+#endif
+
+#define luaL_newlib(L, l) (lua_newtable(L), luaL_setfuncs(L,l,0))
+#endif
 
 #endif
 

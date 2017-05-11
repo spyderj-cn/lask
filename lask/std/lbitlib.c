@@ -39,7 +39,7 @@ static b_uint andaux (lua_State *L) {
   int i, n = lua_gettop(L);
   b_uint r = ~(b_uint)0;
   for (i = 1; i <= n; i++)
-    r &= (unsigned long)luaL_checkint(L, i);
+    r &= (unsigned long)luaL_checkinteger(L, i);
   return trim(r);
 }
 
@@ -62,7 +62,7 @@ static int b_or (lua_State *L) {
   int i, n = lua_gettop(L);
   b_uint r = 0;
   for (i = 1; i <= n; i++)
-    r |= (unsigned long)luaL_checkint(L, i);
+    r |= (unsigned long)luaL_checkinteger(L, i);
   lua_pushinteger(L, trim(r));
   return 1;
 }
@@ -72,14 +72,14 @@ static int b_xor (lua_State *L) {
   int i, n = lua_gettop(L);
   b_uint r = 0;
   for (i = 1; i <= n; i++)
-    r ^= luaL_checkint(L, i);
+    r ^= luaL_checkinteger(L, i);
   lua_pushinteger(L, trim(r));
   return 1;
 }
 
 
 static int b_not (lua_State *L) {
-  b_uint r = ~luaL_checkint(L, 1);
+  b_uint r = ~luaL_checkinteger(L, 1);
   lua_pushinteger(L, trim(r));
   return 1;
 }
@@ -103,18 +103,18 @@ static int b_shift (lua_State *L, b_uint r, int i) {
 
 
 static int b_lshift (lua_State *L) {
-  return b_shift(L, luaL_checkint(L, 1), luaL_checkint(L, 2));
+  return b_shift(L, luaL_checkinteger(L, 1), luaL_checkinteger(L, 2));
 }
 
 
 static int b_rshift (lua_State *L) {
-  return b_shift(L, luaL_checkint(L, 1), -luaL_checkint(L, 2));
+  return b_shift(L, luaL_checkinteger(L, 1), -luaL_checkinteger(L, 2));
 }
 
 
 static int b_arshift (lua_State *L) {
-  b_uint r = luaL_checkint(L, 1);
-  int i = luaL_checkint(L, 2);
+  b_uint r = luaL_checkinteger(L, 1);
+  int i = luaL_checkinteger(L, 2);
   if (i < 0 || !(r & ((b_uint)1 << (LUA_NBITS - 1))))
     return b_shift(L, r, -i);
   else {  /* arithmetic shift for 'negative' number */
@@ -128,7 +128,7 @@ static int b_arshift (lua_State *L) {
 
 
 static int b_rot (lua_State *L, int i) {
-  b_uint r = luaL_checkint(L, 1);
+  b_uint r = luaL_checkinteger(L, 1);
   i &= (LUA_NBITS - 1);  /* i = i % NBITS */
   r = trim(r);
   if (i != 0)  /* avoid undefined shift of LUA_NBITS when i == 0 */
@@ -139,12 +139,12 @@ static int b_rot (lua_State *L, int i) {
 
 
 static int b_lrot (lua_State *L) {
-  return b_rot(L, luaL_checkint(L, 2));
+  return b_rot(L, luaL_checkinteger(L, 2));
 }
 
 
 static int b_rrot (lua_State *L) {
-  return b_rot(L, -luaL_checkint(L, 2));
+  return b_rot(L, -luaL_checkinteger(L, 2));
 }
 
 
@@ -155,8 +155,8 @@ static int b_rrot (lua_State *L) {
 ** 'width' being used uninitialized.)
 */
 static int fieldargs (lua_State *L, int farg, int *width) {
-  int f = luaL_checkint(L, farg);
-  int w = luaL_optint(L, farg + 1, 1);
+  int f = luaL_checkinteger(L, farg);
+  int w = luaL_optinteger(L, farg + 1, 1);
   luaL_argcheck(L, 0 <= f, farg, "field cannot be negative");
   luaL_argcheck(L, 0 < w, farg + 1, "width must be positive");
   if (f + w > LUA_NBITS)
@@ -168,7 +168,7 @@ static int fieldargs (lua_State *L, int farg, int *width) {
 
 static int b_extract (lua_State *L) {
   int w;
-  b_uint r = luaL_checkint(L, 1);
+  b_uint r = luaL_checkinteger(L, 1);
   int f = fieldargs(L, 2, &w);
   r = (r >> f) & mask(w);
   lua_pushinteger(L, r);
@@ -178,8 +178,8 @@ static int b_extract (lua_State *L) {
 
 static int b_replace (lua_State *L) {
   int w;
-  b_uint r = luaL_checkint(L, 1);
-  b_uint v = luaL_checkint(L, 2);
+  b_uint r = luaL_checkinteger(L, 1);
+  b_uint v = luaL_checkinteger(L, 2);
   int f = fieldargs(L, 3, &w);
   int m = mask(w);
   v &= m;  /* erase bits outside given width */

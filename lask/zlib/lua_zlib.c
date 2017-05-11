@@ -1,8 +1,4 @@
 
-/*
- * Copyright (C) Spyderj
- */
-
 #include <ctype.h>
 #include <lauxlib.h>
 #include <lua.h>
@@ -11,151 +7,294 @@
 #include <zlib.h>
 #include "lstd.h"
 
-#define DEF_MEM_LEVEL 2  
+#define DEF_MEM_LEVEL   		2
+#define DEFLATE_CHUNK_SIZE      4096
+#define DEFLATE_MAGIC 		    1491686609
+
+
+typedef struct _Stream {
+	unsigned int magic;
+	z_stream zstrm;
+}Stream;
 
 /*
-** err = zlib.compress(buf, wbits=MAX_WBITS+16)
+** zstream, err = zlib.deflate_init([wbits=16, level=-1, memlevel=2])
 */
-static int l_compress(lua_State *L)
+static int l_deflate_init(lua_State *L)
 {
-	z_stream stream;
-	int wbits;
-	int result = Z_OK;
-	Buffer *buf;
-	uint8_t *in;
-	size_t in_all;
-	uint8_t *deflated_ptr;
-	size_t deflated_all = 0;
-	uint8_t mem[1024];
-	
-	buf = (Buffer*)lua_touserdata(L, 1);
-	if (buf == NULL || buf->magic != BUFFER_MAGIC)
-		luaL_error(L, "expected buffer for argument #1");
-		
-	wbits = luaL_optint(L, 2, MAX_WBITS + 16);
-	in = buf->data;
-	in_all = buf->datasiz;
-	deflated_ptr = buf->data;	
-	if (in_all == 0) {
-		lua_pushinteger(L, 0);
-		return 1;
-	}
-	
-	stream.zalloc = Z_NULL;
-	stream.zfree = Z_NULL;
-	result = deflateInit2(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, wbits, DEF_MEM_LEVEL, Z_DEFAULT_STRATEGY);
-	if (result != Z_OK) {
-		lua_pushinteger(L, result);
-		return 1;
-	}
-	
-	while (in_all > 0 || result == Z_OK) {
-		size_t in_num = in_all > 1024 ? 1024 : in_all;
-		
-		stream.next_in = in;
-		stream.avail_in = in_num;
-		stream.next_out = mem;
-		stream.avail_out = sizeof(mem);
-		
-		result = deflate(&stream, in_all > 1024 ? Z_SYNC_FLUSH : Z_FINISH);
-		if (result != Z_OK && result != Z_STREAM_END) {
-			break;
-		} else {
-			size_t out_num = sizeof(mem) - stream.avail_out;
-			deflated_all += out_num;
-			memcpy(deflated_ptr, mem, out_num);
-			deflated_ptr += out_num;
-		}
-		
-		if (in_all > 0) {
-			in_all -= (in_num - stream.avail_in);
-			in += (in_num - stream.avail_in);
-		}
-	}
-	
-	deflateEnd(&stream);
-	if (in_all == 0) {
-		buffer_pop(buf, buf->datasiz - deflated_all);
+	z_stream stream = {
+		.zalloc = Z_NULL,
+		.zfree = Z_NULL,
+		.opaque = Z_NULL,
+	};
+	int wbits = (int)luaL_optinteger(L, 1, MAX_WBITS + 16);
+	int level = (int)luaL_optinteger(L, 2, Z_DEFAULT_COMPRESSION);
+	int memlevel = (int)luaL_optinteger(L, 3, DEF_MEM_LEVEL);
+	int result = deflateInit2(&stream, level, Z_DEFLATED, wbits, memlevel, Z_DEFAULT_STRATEGY);
+	if (result == Z_OK) {
+		Stream *p = (Stream*)malloc(sizeof(z_stream));
+		p->magic = DEFLATE_MAGIC;
+		memcpy(&p->zstrm, &stream, sizeof(stream));
+		lua_pushlightuserdata(L, p);
 		lua_pushinteger(L, 0);
 	} else {
+		lua_pushnil(L);
 		lua_pushinteger(L, result);
 	}
+	return 2;
+}
+
+/*
+** err = zlib.deflate(zstream, buffer_or_reader, outbuf, flush)
+**
+** when buffer_or
+*/
+static int l_deflate(lua_State *L)
+{
+	Stream *strm;
+	union {
+		const Buffer *buf;
+		const Reader *rd;
+	}ptr;
+	Buffer *outbuf;
+	int flush;
+
+	int result = Z_OK;
+	const uint8_t *in;
+	size_t in_all;
+	uint8_t *out;
+	size_t out_all;
+
+	/* XXX: something goes wrong if size grow bigger after deflation, so we
+	make the output buffer 20% bigger. */
+	uint8_t mem[(int)(DEFLATE_CHUNK_SIZE * 1.2)];
+
+	/******************* collect the arguments  *******************/
+
+	strm = (Stream*)lua_touserdata(L, 1);
+	if (strm == NULL || strm->magic != DEFLATE_MAGIC)
+		luaL_error(L, "expected zstream for argument #1");
+
+	ptr.buf = (const Buffer*)lua_touserdata(L, 2);
+	if (ptr.buf != NULL) {
+		if (ptr.buf->magic == BUFFER_MAGIC) {
+			in = ptr.buf->data;
+			in_all = ptr.buf->datasiz;
+		} else if (ptr.rd->magic == READER_MAGIC) {
+			in = ptr.rd->data;
+			in_all = ptr.rd->datasiz;
+		} else {
+			ptr.buf = NULL;
+		}
+	}
+	if (ptr.buf == NULL)
+		luaL_error(L, "expected buffer/reader for argument #2");
+
+	outbuf = (Buffer*)lua_touserdata(L, 3);
+	if (outbuf == NULL || outbuf->magic != BUFFER_MAGIC)
+		luaL_error(L, "argument #3 should be buffer if provided");
+
+	flush = (int)luaL_optinteger(L, 4, 1);
+	flush = (flush == 1 && in_all > 0) ? Z_SYNC_FLUSH : Z_FINISH;
+
+
+	/******************* do the deflation *******************/
+
+	while (in_all > 0 || flush == Z_FINISH) {
+		size_t in_num = in_all > DEFLATE_CHUNK_SIZE ? DEFLATE_CHUNK_SIZE : in_all;
+		size_t out_num;
+
+		strm->zstrm.next_in = (uint8_t*)in;
+		strm->zstrm.avail_in = in_num;
+		strm->zstrm.next_out = mem;
+		strm->zstrm.avail_out = sizeof(mem);
+
+		result = deflate(&strm->zstrm, in_all > DEFLATE_CHUNK_SIZE ? Z_SYNC_FLUSH : flush);
+		if (in_all > 0) {
+			in_all -= (in_num - strm->zstrm.avail_in);
+			in += (in_num - strm->zstrm.avail_in);
+		}
+
+		out_num = sizeof(mem) - strm->zstrm.avail_out;
+		memcpy(buffer_grow(outbuf, out_num), mem, out_num);
+
+		if (result != Z_OK)
+			break;
+
+		if (flush == Z_FINISH && in_all == 0)
+			break;
+	}
+
+	if (flush == Z_FINISH && result == Z_STREAM_END)
+		result = Z_OK;
+
+	lua_pushinteger(L, result);
 	return 1;
 }
 
 /*
-** err = zlib.uncompress(buf, wbits=MAX_WBITS+16)
+** zlib.deflate_end(zstream)
 */
-static int l_uncompress(lua_State *L)
+static int l_deflate_end(lua_State *L)
 {
-	z_stream stream;
+	Stream *p =(Stream*)lua_touserdata(L, 1);
+	if (p == NULL || p->magic != DEFLATE_MAGIC)
+		luaL_error(L, "expected zstream for argument #1");
+	deflateEnd(&p->zstrm);
+	free(p);
+	return 0;
+}
+
+#define INFLATE_CHUNK_SIZE      4096
+#define INFLATE_MAGIC 		    1491686610
+
+/*
+** zstream, err = zlib.inflate_init([wbits])
+*/
+static int l_inflate_init(lua_State *L)
+{
+	z_stream stream = {
+		.zalloc = Z_NULL,
+		.zfree = Z_NULL,
+		.opaque = Z_NULL,
+		.avail_in = 0,
+		.next_in = Z_NULL,
+	};
+	int wbits = (int)luaL_optinteger(L, 1, MAX_WBITS + 16);
+	int result = inflateInit2(&stream, wbits);
+	if (result == Z_OK) {
+		Stream *p = (Stream*)malloc(sizeof(z_stream));
+		p->magic = INFLATE_MAGIC;
+		memcpy(&p->zstrm, &stream, sizeof(stream));
+		lua_pushlightuserdata(L, p);
+		lua_pushinteger(L, 0);
+	} else {
+		lua_pushnil(L);
+		lua_pushinteger(L, result);
+	}
+	return 2;
+}
+
+
+/*
+** err = zlib.inflate(zstream, buffer_or_reader, outbuf[, flush=1])
+*/
+static int l_inflate(lua_State *L)
+{
+	Stream *strm;
+	union {
+		const Buffer *buf;
+		const Reader *rd;
+	}ptr;
+	Buffer *outbuf;
+	int flush;
+
 	int wbits;
 	int result = Z_OK;
-	Buffer *buf;
-	uint8_t *in;
+	const uint8_t *in;
+	uint8_t *out;
 	size_t in_all;
 	size_t in_done = 0;
-	uint8_t mem[4096];
-	
-	buf = (Buffer*)lua_touserdata(L, 1);
-	if (buf == NULL || buf->magic != BUFFER_MAGIC)
-		luaL_error(L, "expected buffer for argument #1");
+	size_t offset, old_lgap, old_datasiz;
 
-	wbits = luaL_optint(L, 2, MAX_WBITS + 16);
-	in_all = buf->datasiz;
+	/********************** collect the arguments  ******************/
+
+	strm = (Stream*)lua_touserdata(L, 1);
+	if (strm == NULL || strm->magic != INFLATE_MAGIC)
+		luaL_error(L, "expected zstream for argument #1");
+
+	ptr.buf = (const Buffer*)lua_touserdata(L, 2);
+	if (ptr.buf != NULL) {
+		if (ptr.buf->magic == BUFFER_MAGIC) {
+			in = ptr.buf->data;
+			in_all = ptr.buf->datasiz;
+		} else if (ptr.rd->magic == READER_MAGIC) {
+			in = ptr.rd->data;
+			in_all = ptr.rd->datasiz;
+		} else {
+			ptr.buf = NULL;
+		}
+	}
+	if (ptr.buf == NULL)
+		luaL_error(L, "expected buffer/reader for argument #2");
+
 	if (in_all == 0) {
 		lua_pushinteger(L, 0);
 		return 1;
 	}
-	
-	stream.zalloc = Z_NULL;
-	stream.zfree = Z_NULL;
-	stream.next_in = Z_NULL;
-	stream.avail_in = 0;
-	result = inflateInit2(&stream, wbits);
-	if (result != Z_OK) {
-		lua_pushinteger(L, result);
-		return 1;
-	}
-	
-	in = (uint8_t*)malloc(in_all);
-	memcpy(in, buf->data, in_all);
-	buffer_rewind(buf);
-	
-	while (in_done < in_all || result == Z_OK) {
-		size_t in_num = (in_all - in_done) > 1024 ? 1024 : (in_all - in_done);
-		
-		stream.next_in = in + in_done;
-		stream.avail_in = in_num;
-		stream.next_out = mem;
-		stream.avail_out = sizeof(mem);
-		
-		result = inflate(&stream, (in_all - in_done) > 1024 ? Z_NO_FLUSH : Z_FINISH);
-		if (result != Z_OK && result != Z_STREAM_END) {
-			break;
-		} else {
-			buffer_push(buf, mem, sizeof(mem) - stream.avail_out);
+
+	outbuf = (Buffer*)lua_touserdata(L, 3);
+	if (outbuf == NULL || outbuf->magic != BUFFER_MAGIC)
+		luaL_error(L, "expected buffer for argument #3");
+
+	flush = (int)luaL_optinteger(L, 4, 1);
+	flush = flush == 1 ? Z_SYNC_FLUSH : Z_FINISH;
+
+	/********************** do the inflation ******************/
+
+	old_lgap = outbuf->data - outbuf->mem;
+	old_datasiz = outbuf->datasiz;
+	out = outbuf->data + outbuf->datasiz;
+	offset = out - outbuf->mem;
+
+	while (in_done < in_all) {
+		size_t in_num = (in_all - in_done) > INFLATE_CHUNK_SIZE ? INFLATE_CHUNK_SIZE : (in_all - in_done);
+		size_t out_num = outbuf->memsiz - offset;
+
+		if (out_num < in_num * 4) {
+			buffer_grow(outbuf, in_num * 4 - out_num);
+			out = outbuf->mem + offset;
+			out_num = outbuf->memsiz - offset;
 		}
-		
-		in_done += (in_num - stream.avail_in);
+
+		strm->zstrm.next_in = (uint8_t*)in + in_done;
+		strm->zstrm.avail_in = in_num;
+		strm->zstrm.next_out = out;
+		strm->zstrm.avail_out = out_num;
+
+		result = inflate(&strm->zstrm, (in_all - in_done) > INFLATE_CHUNK_SIZE ? Z_NO_FLUSH : flush);
+		if (result == Z_NEED_DICT || result == Z_MEM_ERROR || result == Z_DATA_ERROR)
+			break;
+
+		in_done += (in_num - strm->zstrm.avail_in);
+		out += out_num - strm->zstrm.avail_out;
+		offset = out - outbuf->mem;
+
+		if (result == Z_STREAM_END)
+			break;
 	}
-	
-	inflateEnd(&stream);
-	if (in_all == in_done) {
+
+	if (in_all == in_done || result == Z_STREAM_END) {
 		lua_pushinteger(L, 0);
+		outbuf->datasiz = out - outbuf->mem - old_lgap;
 	} else {
-		buffer_reset(buf);
-		buffer_push(buf, in, in_all);
+		outbuf->datasiz = old_datasiz;
 		lua_pushinteger(L, result);
 	}
-	free(in);
-	
+
 	return 1;
+}
+
+/*
+** zlib.inflate_end(zstream)
+*/
+static int l_inflate_end(lua_State *L)
+{
+	Stream *p =(Stream*)lua_touserdata(L, 1);
+	if (p == NULL || p->magic != INFLATE_MAGIC)
+		luaL_error(L, "expected zstream for argument #1");
+	inflateEnd(&p->zstrm);
+	free(p);
+	return 0;
 }
 
 static const luaL_Reg funcs[] = {
-	{"compress", l_compress},
-	{"uncompress", l_uncompress},
+	{"deflate_init", l_deflate_init},
+	{"deflate", l_deflate},
+	{"deflate_end", l_deflate_end},
+	{"inflate_init", l_inflate_init},
+	{"inflate", l_inflate},
+	{"inflate_end", l_inflate_end},
 	{NULL, NULL}
 };
 
@@ -175,7 +314,7 @@ static const EnumReg enums[] = {
 	{NULL, 0},
 };
 
-static void l_register_enums(lua_State *L, const EnumReg *enums) 
+static void l_register_enums(lua_State *L, const EnumReg *enums)
 {
 	while (enums->name != NULL) {
 		lua_pushstring(L, enums->name);
@@ -187,18 +326,17 @@ static void l_register_enums(lua_State *L, const EnumReg *enums)
 
 BufferCFunc *buf_cfunc = NULL;
 
-int luaopen_zlib(lua_State *L)
+int luaopen__zlib(lua_State *L)
 {
 	lua_newtable(L);
-	luaL_register(L, NULL, funcs);
+	luaL_setfuncs(L, funcs, 0);
 	l_register_enums(L, enums);
-	
+
 	lua_pushstring(L, "MAX_WBITS");
 	lua_pushinteger(L, MAX_WBITS);
 	lua_settable(L, -3);
-	
+
 	buffer_initcfunc(L);
-	
+
 	return 1;
 }
-

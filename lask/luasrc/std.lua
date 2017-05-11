@@ -1,6 +1,6 @@
 
 --
--- Copyright (C) Spyderj
+-- Copyright (C) spyder
 --
 
 
@@ -240,11 +240,19 @@ function socket.unserver(path)
 	return fd
 end
 
-function socket.async_connect(addr, port, family)
+function socket.async_connect(addr, port, family, localip)
 	family = family or socket.AF_INET
 	local fd, err = socket.socket(family, socket.SOCK_STREAM)
 	if fd < 0 then
 		return -1, err
+	end
+	
+	if localip then
+		err = socket.bind(fd, localip, 0)
+		if err ~= 0 then
+			os.close(fd)
+			return -1, err
+		end
 	end
 	
 	os.setnonblock(fd)

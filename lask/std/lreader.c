@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) Spyderj
+ * Copyright (C) spyder
  */
 
 
@@ -22,7 +22,7 @@ void reader_shift(Reader *rd, size_t siz)
 {
 	if (siz > rd->datasiz)
 		siz = rd->datasiz;
-		
+
 	rd->datasiz -= siz;
 	rd->data += siz;
 }
@@ -33,24 +33,24 @@ const char* reader_getline(Reader *rd, size_t *len)
 	char *start = (char*)rd->data;
 	char *end = start + rd->datasiz;
 	size_t eaten;
-	
+
 	if (rd->datasiz == 0 || *start == 0)
 		return NULL;
-	
+
 	while (*p != '\n' && p < end)
 		p++;
 	if (p == end)
 		return NULL;
-		
+
 	eaten = p - start;
 	if (p < end)
 		eaten++;
-		
+
 	if (*p == '\n')
 		*p = 0;
 	if (p > start && p[-1] == '\r')
 		p[-1] = 0;
-	
+
 	rd->data += eaten;
 	rd->datasiz -= eaten;
 	if (start[eaten - 1] == 0)
@@ -64,7 +64,7 @@ const char* reader_getline(Reader *rd, size_t *len)
 Reader* reader_lcheck(lua_State *L, int idx)
 {
 	Reader *rd = lua_touserdata(L, idx);
-	if (rd == NULL || rd->magic != READER_MAGIC) 
+	if (rd == NULL || rd->magic != READER_MAGIC)
 		luaL_error(L, "expecting reader(userdata) for argument %d", idx);
 	return rd;
 }
@@ -89,8 +89,8 @@ static int lreader_tostring(lua_State *L)
 {
 	Reader *rd = reader_lcheck(L, 1);
 	char buf[LINE_MAX];
-	snprintf(buf, sizeof(buf), "reader (0x%08x, all=%u, left=%u, %s-endian)", 
-			(unsigned int)rd, rd->memsiz, rd->datasiz, rd->be ? "big" : "little");
+	snprintf(buf, sizeof(buf), "reader (%p, all=%u, left=%u, %s-endian)",
+			rd, (unsigned int)rd->memsiz, (unsigned int)rd->datasiz, rd->be ? "big" : "little");
 	lua_pushstring(L, buf);
 	return 1;
 }
@@ -112,7 +112,7 @@ static int lreader_setbe(lua_State *L)
 {
 	Reader *rd = reader_lcheck(L, 1);
 	rd->be = true;
-	if (lua_gettop(L) > 1) 
+	if (lua_gettop(L) > 1)
 		rd->be = (bool)lua_toboolean(L, 2);
 	return 0;
 }
@@ -127,20 +127,20 @@ static int lreader_sub(lua_State *L)
 	size_t offset = 0;
 	size_t length = rd->datasiz;
 	int top = lua_gettop(L);
-	
+
 	if (top >= 2) {
 		offset = (size_t)luaL_checkinteger(L, 2);
 		if (offset >= rd->datasiz)
 			offset = 0;
-	}	
-		
+	}
+
 	if (top >= 3) {
 		length = (size_t)luaL_checkinteger(L, 3);
 	}
-	
+
 	if (offset + length > rd->datasiz)
 		length = rd->datasiz - offset;
-	
+
 	subrd = (Reader*)lua_newuserdata(L, sizeof(Reader));
 	reader_init(subrd, rd->data + offset, length);
 	l_setmetatable(L, -1, READER_META);
@@ -152,16 +152,16 @@ static int lreader_sub(lua_State *L)
 **
 ** read n bytes(unsigned 8-bit integer), each one is a number
 */
-static int lreader_getc(lua_State *L) 
+static int lreader_getc(lua_State *L)
 {
 	Reader *rd = reader_lcheck(L, 1);
-	size_t num = (size_t)luaL_optint(L, 2, 1);
-	
+	size_t num = (size_t)luaL_optinteger(L, 2, 1);
+
 	if (num > rd->datasiz)
 		num = rd->datasiz;
-	
+
 	for (size_t i = 0; i < num; i++) {
-		lua_pushinteger(L, (int)rd->data[i]);
+		lua_pushinteger(L, (lua_Integer)rd->data[i]);
 	}
 	reader_shift(rd, num);
 	return (int)num;
@@ -169,21 +169,21 @@ static int lreader_getc(lua_State *L)
 
 /*
 ** w1, w2, w3, ... wN = reader:getw(N = 1)
-** 
+**
 ** read n words(unsigned 16-bit integer), each one is a number
 */
 static int lreader_getw(lua_State *L)
 {
 	Reader *rd = reader_lcheck(L, 1);
-	size_t num = (size_t)luaL_optint(L, 2, 1);
+	size_t num = (size_t)luaL_optinteger(L, 2, 1);
 	bool be = rd->be;
 	const uint8 *p = rd->data;
-	
+
 	if (num * 2 > rd->datasiz)
 		num = rd->datasiz / 2;
-	
+
 	for (size_t i = 0; i < num; i++) {
-		lua_pushinteger(L, be ? (int)bytes_to_uint16_be(p) : (int)bytes_to_uint16_le(p));
+		lua_pushinteger(L, be ? (lua_Integer)bytes_to_uint16_be(p) : (lua_Integer)bytes_to_uint16_le(p));
 		p += 2;
 	}
 	reader_shift(rd, 2 * num);
@@ -191,50 +191,22 @@ static int lreader_getw(lua_State *L)
 }
 
 /*
-** i1, i2, i3, ... iN = reader:geti(N = 1)
+** i1, i2, i3, ... iN = reader:getu(N = 1)
 **
 ** read n integer(signed 32-bit integer), each one is a number
-*/
-static int lreader_geti(lua_State *L)
-{
-	Reader *rd = reader_lcheck(L, 1);
-	size_t num = (size_t)luaL_optint(L, 2, 1);
-	bool be = rd->be;
-	const uint8 *p = rd->data;
-	
-	if (num * 4 > rd->datasiz)
-		num = rd->datasiz / 4;
-	
-	for (size_t i = 0; i < num; i++) {
-		lua_pushinteger(L, be ? (int)(bytes_to_uint32_be(p)) : (int)(bytes_to_uint32_le(p)));
-		p += 4;
-	}
-	reader_shift(rd, 4 * num);
-	return (int)num;
-}
-
-/*
-** u1, u2, u3, ... uN = reader:getu(N = 1)
-**
-** read n integer(unsigned signed 32-bit integer), each one is a number
 */
 static int lreader_getu(lua_State *L)
 {
 	Reader *rd = reader_lcheck(L, 1);
-	size_t num = (size_t)luaL_optint(L, 2, 1);
+	size_t num = (size_t)luaL_optinteger(L, 2, 1);
 	bool be = rd->be;
 	const uint8 *p = rd->data;
-	
+
 	if (num * 4 > rd->datasiz)
 		num = rd->datasiz / 4;
-	
+
 	for (size_t i = 0; i < num; i++) {
-		lua_Number value;
-		if (be)
-			value = (lua_Number)(bytes_to_uint32_be(p));
-		else
-			value = (lua_Number)(bytes_to_uint32_le(p));
-		lua_pushnumber(L, value);
+		lua_pushinteger(L, be ? (lua_Integer)(bytes_to_uint32_be(p)) : (lua_Integer)(bytes_to_uint32_le(p)));
 		p += 4;
 	}
 	reader_shift(rd, 4 * num);
@@ -251,15 +223,15 @@ static int lreader_getlist(lua_State *L)
 	const char *p = types;
 	bool empty = false;
 	bool be = rd->be;
-	
+
 	while (*p != 0 && !empty) {
 		char type = *p;
 		switch (type) {
-		case 'c': {
+		case 'c': case 'b': {
 				if (rd->datasiz < 1)  {
 					empty = true;
 				} else {
-					lua_pushinteger(L, (int)(uint32)rd->data[0]);
+					lua_pushinteger(L, (lua_Integer)rd->data[0]);
 					reader_shift(rd, 1);
 				}
 				break;
@@ -269,27 +241,17 @@ static int lreader_getlist(lua_State *L)
 					empty = true;
 				} else {
 					const uint8 *p = rd->data;
-					lua_pushinteger(L, be ? (int)(bytes_to_uint16_be(p)) : (int)(bytes_to_uint16_le(p)));
+					lua_pushinteger(L, be ? (lua_Integer)(bytes_to_uint16_be(p)) : (lua_Integer)(bytes_to_uint16_le(p)));
 					reader_shift(rd, 2);
 				}
 				break;
 			}
-		case 'i': {
+		case 'i': case 'u': {
 				if (rd->datasiz < 4)  {
 					empty = true;
 				} else {
 					const uint8 *p = rd->data;
-					lua_pushinteger(L, be ? (int)(bytes_to_uint32_be(p)) : (int)(bytes_to_uint32_le(p)));
-					reader_shift(rd, 4);
-				}
-				break;
-			}
-		case 'u': {
-				if (rd->datasiz < 4)  {
-					empty = true;
-				} else {
-					const uint8 *p = rd->data;
-					lua_pushnumber(L, be ? (lua_Number)(bytes_to_uint32_be(p)) : (lua_Number)(bytes_to_uint32_le(p)));
+					lua_pushinteger(L, be ? (lua_Integer)(bytes_to_uint32_be(p)) : (lua_Integer)(bytes_to_uint32_le(p)));
 					reader_shift(rd, 4);
 				}
 				break;
@@ -305,13 +267,13 @@ static int lreader_getlist(lua_State *L)
 
 /*
 ** line1, ... = reader:getline(num)
-** 
+**
 ** Note that EOL(\r\n, \n, \n\r) is removed.
 */
 static int lreader_getline(lua_State *L)
 {
 	Reader *rd = reader_lcheck(L, 1);
-	size_t num = (size_t)luaL_optint(L, 2, 1);
+	size_t num = (size_t)luaL_optinteger(L, 2, 1);
 
 	for (size_t i = 0; i < num ; i++) {
 		size_t len;
@@ -320,11 +282,11 @@ static int lreader_getline(lua_State *L)
 			lua_pushlstring(L, str, len);
 		else
 			lua_pushnil(L);
-	}	
+	}
 	return (int)num;
 }
 
-static int eachline_next(lua_State *L) 
+static int eachline_next(lua_State *L)
 {
 	Reader *rd = (Reader*)lua_touserdata(L, 1);
 	size_t len;
@@ -339,7 +301,7 @@ static int eachline_next(lua_State *L)
 /*
 ** next_func, priv_userdata = reader:eachline()
 */
-static int lreader_eachline(lua_State *L) 
+static int lreader_eachline(lua_State *L)
 {
 	Reader *rd = reader_lcheck(L, 1);
 	lua_pushcfunction(L, eachline_next);
@@ -355,11 +317,11 @@ static int lreader_eachline(lua_State *L)
 static int lreader_getlstr(lua_State *L)
 {
 	Reader *rd = reader_lcheck(L, 1);
-	size_t length = (size_t)luaL_optint(L, 2, -1);
-	
+	size_t length = (size_t)luaL_optinteger(L, 2, -1);
+
 	if (length > rd->datasiz)
 		length = rd->datasiz;
-	
+
 	if (length > 0) {
 		lua_pushlstring(L, (const char*)rd->data, length);
 		rd->data += length;
@@ -367,7 +329,7 @@ static int lreader_getlstr(lua_State *L)
 	} else {
 		lua_pushnil(L);
 	}
-		
+
 	return 1;
 }
 
@@ -405,24 +367,24 @@ static int lreader_find_formdata_content_boundary(lua_State *L)
 	const char *end = p + rd->datasiz;
 	int offset = -1, tail = 0;
 	size_t len;
-	
+
 	if (boundary_len <= 2 || boundary[0] != '-' || boundary[1] != '-') {
 		luaL_error(L, "not a valid http-boundary for argument #2");
 	}
-	
+
 	while (p < end) {
-		while (*p != '\r' && p < end) 
+		while (*p != '\r' && p < end)
 			p++;
-			
+
 		if (p == end)
 			break;
-		
+
 		len = (end - p);
 		if (len == 1) { /* ended with \r */
 			tail = 1;
 			break;
 		}
-		
+
 		if (p[1] != '\n') {
 			p += 2;
 		} else if (len >= boundary_len + 2) {
@@ -459,7 +421,7 @@ static const luaL_Reg funcs[] = {
 	{"sub", lreader_sub},
 	{"getc", lreader_getc},
 	{"getw", lreader_getw},
-	{"geti", lreader_geti},
+	{"geti", lreader_getu},
 	{"getu", lreader_getu},
 	{"getlstr", lreader_getlstr},
 	{"getlist", lreader_getlist},
@@ -473,8 +435,10 @@ static const luaL_Reg funcs[] = {
 
 int l_openreader(lua_State *L)
 {
-	luaL_register(L, "reader", funcs);
-	l_register_metatable(L, READER_META, meta_funcs);	
+	luaL_newlib(L, funcs);
+	lua_pushvalue(L, -1);
+	lua_setglobal(L, "reader");
+	l_register_metatable(L, READER_META, meta_funcs);
 	lua_pop(L, 1);
 	return 0;
 }

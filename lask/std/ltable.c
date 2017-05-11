@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) Spyderj
+ * Copyright (C) spyder
  */
 
 
@@ -10,7 +10,7 @@ int ltable_array(lua_State *L)
 {
 	int type = lua_type(L, 1);
 	if (type == LUA_TNUMBER) {
-		int narr = luaL_checkint(L, 1);
+		int narr = (int)luaL_checkinteger(L, 1);
 		lua_createtable(L, narr, 0);
 	} else if (type == LUA_TTABLE) {
 		int len = lua_rawlen(L, 1);

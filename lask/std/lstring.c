@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) Spyderj
+ * Copyright (C) spyder
  */
 
 
@@ -15,11 +15,11 @@ static int lstring_reader(lua_State *L)
 	const char *str = luaL_checklstring(L, 1, &len);
 	Reader *reader = NULL;
 	int top = lua_gettop(L);
-	
+
 	if (top >= 2 && lua_type(L, 2) == LUA_TUSERDATA) {
 		reader = reader_lcheck(L, 2);
 		lua_pushvalue(L, 2);
-	} 
+	}
 	if (reader == NULL) {
 		reader = lua_newuserdata(L, sizeof(Reader));
 		l_setmetatable(L, -1, READER_META);
@@ -29,8 +29,8 @@ static int lstring_reader(lua_State *L)
 }
 
 /*
-** {...} = string.tokenize(src, delim)
-** 
+** tab, num = string.tokenize(src, delim[, tab])
+**
 ** a light-weight tokenizer (simply a wrapper for strtok)
 */
 static int lstring_tokenize(lua_State *L)
@@ -40,18 +40,23 @@ static int lstring_tokenize(lua_State *L)
 	const char *delim = luaL_checkstring(L, 2);
 	char buf[len + 1], *tok = NULL;
 	int i = 1;
-	
+
 	memcpy(buf, str, len);
 	buf[len] = 0;
 	tok = strtok(buf, delim);
-	lua_newtable(L);
+
+	if (lua_type(L, 3) == LUA_TTABLE)
+		lua_pushvalue(L, 3);
+	else
+		lua_newtable(L);
+
 	while (tok != NULL) {
 		lua_pushstring(L, tok);
 		lua_rawseti(L, -2, i++);
 		tok = strtok(NULL, delim);
 	}
-	
-	return 1;
+	lua_pushinteger(L, i - 1);
+	return 2;
 }
 
 typedef struct eachtok_info {
@@ -70,10 +75,10 @@ static int l_eachtok_next(lua_State *L)
 	} else {
 		char *delim = info->buf;
 		char *tok = strtok(info->src, delim);
-		
+
 		if (info->src != NULL)
 			info->src = NULL;
-		
+
 		if (tok != NULL) {
 			lua_pushstring(L, tok);
 		} else {
@@ -94,17 +99,17 @@ static int lstring_eachtok(lua_State *L)
 	size_t delim_len;
 	const char *delim = luaL_checklstring(L, 2, &delim_len);
 	eachtok_info_t *info = (eachtok_info_t*)MALLOC(sizeof(eachtok_info_t) + src_len + delim_len + 2);
-	
+
 	info->delim_len = delim_len;
 	memcpy(info->buf, delim, delim_len);
 	info->buf[delim_len] = 0;
-	
+
 	info->src_len = src_len;
 	memcpy(info->buf + delim_len + 1, src, src_len);
 	info->buf[src_len + delim_len + 1] = 0;
-	
+
 	info->src = info->buf + delim_len + 1;
-	
+
 	lua_pushcfunction(L, l_eachtok_next);
 	lua_pushlightuserdata(L, info);
 	return 2;
@@ -119,7 +124,7 @@ static int lstring_addslashes(lua_State *L)
 	char *dst = NULL, *p = NULL;
 	size_t srclen = 0;
 	const char *src = luaL_checklstring(L, 1, &srclen);
-	
+
 	for (size_t i = 0; i < srclen; i++) {
 		char ch = src[i];
 		if (ch == '\\' || ch == '\'' || ch == '\"' || ch == '\0' || ch == '\r' || ch == '\n') {
@@ -128,10 +133,10 @@ static int lstring_addslashes(lua_State *L)
 					dst = (char*)MALLOC(srclen * 2);
 				else
 					dst = stkbuf;
-				
+
 				if (i > 0)
 					memcpy(dst, src, i);
-					
+
 				p = dst + i;
 			}
 			*p = '\\';
@@ -149,7 +154,7 @@ static int lstring_addslashes(lua_State *L)
 			p++;
 		}
 	}
-	
+
 	if (dst != NULL) {
 		lua_pushlstring(L, dst, p - dst);
 		if (dst != stkbuf)
@@ -171,12 +176,12 @@ static const luaL_Reg funcs[] = {
 int l_openstring(lua_State *L)
 {
 	lua_getglobal(L, "string");
-	luaL_register(L, NULL, funcs); 
-	
+	luaL_setfuncs(L, funcs, 0);
+
 	lua_pushstring(L, "");
-	lua_getmetatable(L, -1);	
-	
+	lua_getmetatable(L, -1);
+
 	lua_pop(L, 3);
-	
+
 	return 0;
 }

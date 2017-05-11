@@ -1,7 +1,7 @@
 #!/usr/bin/lua
 
 -- 
--- Copyright (C) Spyderj
+-- Copyright (C) spyder
 --
 
 local usage = [[

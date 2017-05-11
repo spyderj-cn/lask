@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) Spyderj
+ * Copyright (C) spyder
  */
 
 
@@ -14,39 +14,39 @@
 
 #define pid2num(pid)					((lua_Number)(pid))
 
-int os_getnread(int fd, size_t *nread) 
+int os_getnread(int fd, size_t *nread)
 {
 	int value = 0;
 	int err = ioctl(fd, FIONREAD, &value);
 	if (err < 0)
 		err = errno;
-	else 
+	else
 		*nread = (size_t)value;
 	return err;
 }
 
-int os_implread(int fd, Buffer *buffer, ssize_t nreq, size_t *ndone, 
+int os_implread(int fd, Buffer *buffer, ssize_t nreq, size_t *ndone,
 				ssize_t (*read_cb)(int, void*, size_t, void*), void* ud)
-{	
-	char tmp[1024];	
+{
+	char tmp[1024];
 	ssize_t nacc = 0;
 	int err = 0;
-		
+
 	if (ndone != NULL)
 		*ndone = 0;
-		
+
 	if (nreq == 0) {
 		ssize_t ret = read_cb(fd, NULL, 0, ud);
 		return ret == 0 ? 0 : errno;
-	} 
-		
+	}
+
 	while (nacc < nreq || nreq < 0) {
 		size_t num = sizeof(tmp);
 		ssize_t ret;
-		
+
 		if (num > (size_t)(nreq - nacc))
 			num = (size_t)(nreq - nacc);
-			
+
 		ret = read_cb(fd, tmp, num, ud);
 		if (ret > 0) {
 			nacc += (size_t)ret;
@@ -66,10 +66,10 @@ int os_implread(int fd, Buffer *buffer, ssize_t nreq, size_t *ndone,
 			}
 		}
 	}
-	
+
 	if (ndone != NULL)
 		*ndone = (size_t)nacc;
-		
+
 	return err;
 }
 
@@ -79,20 +79,20 @@ static ssize_t read_cb(int fd, void *mem, size_t memsiz, void* ud)
 	return read(fd, mem, memsiz);
 }
 
-int os_read(int fd, Buffer *buffer, ssize_t nreq, size_t *ndone) 
-{	
+int os_read(int fd, Buffer *buffer, ssize_t nreq, size_t *ndone)
+{
 	return os_implread(fd, buffer, nreq, ndone, read_cb, NULL);
 }
 
 int os_implwrite(int fd, const uint8 *mem, size_t nreq, size_t *ndone,
-				ssize_t (*write_cb)(int, const void*, size_t, void*), void* ud) 
+				ssize_t (*write_cb)(int, const void*, size_t, void*), void* ud)
 {
 	size_t total = 0;
 	int err = 0;
-	
+
 	if (ndone != NULL)
 		*ndone = 0;
-		
+
 	while (total < nreq) {
 		ssize_t ret = write_cb(fd, mem, nreq - total, ud);
 		err = 0;
@@ -103,10 +103,10 @@ int os_implwrite(int fd, const uint8 *mem, size_t nreq, size_t *ndone,
 			break;
 		} else {
 			err = errno;
-			if (err == EINTR) 
+			if (err == EINTR)
 				continue;
 			else {
-				if (err == EWOULDBLOCK || err == EAGAIN) 
+				if (err == EWOULDBLOCK || err == EAGAIN)
 					err = 0;
 				break;
 			}
@@ -114,7 +114,7 @@ int os_implwrite(int fd, const uint8 *mem, size_t nreq, size_t *ndone,
 	}
 	if (err == 0 && ndone != NULL)
 		*ndone = total;
-		
+
 	return err;
 }
 
@@ -132,42 +132,30 @@ int os_write(int fd, const uint8 *mem, size_t nreq, size_t *ndone)
 /*
 ** fd, err = os.open(path, flags, mode)
 */
-static int los_open(lua_State *L) 
+static int los_open(lua_State *L)
 {
 	const char *path = luaL_checkstring(L, 1);
-	int flags = luaL_checkint(L, 2);
+	int flags = (int)luaL_checkinteger(L, 2);
 	mode_t mode = 0;
 	int fd;
-	
+
 	if (lua_gettop(L) >= 3)
 		mode = (mode_t)luaL_checkinteger(L, 2);
-		
+
 	fd = open(path, flags, mode);
 	lua_pushinteger(L, fd);
-	if (fd < 0) {
-		lua_pushinteger(L, errno);
-	} else {
-		lua_pushinteger(L, 0);
-	}
+	lua_pushinteger(L, fd < 0 ? errno : 0);
 	return 2;
 }
 
 /*
 ** fd, err = os.creat(path[, mode])
 */
-static int los_creat(lua_State *L) 
+static int los_creat(lua_State *L)
 {
-	const char *path = luaL_checkstring(L, 1);
-	mode_t mode = (mode_t)luaL_checkinteger(L, 2);
-	int fd = creat(path, mode);
-
-	if (fd < 0) {
-		lua_pushnil(L);
-		lua_pushinteger(L, errno);
-	} else {
-		lua_pushinteger(L, fd);
-		lua_pushinteger(L, 0);
-	}
+	int fd = creat(luaL_checkstring(L, 1), (mode_t)luaL_checkinteger(L, 2));
+	lua_pushinteger(L, fd);
+	lua_pushinteger(L, fd < 0 ? errno : 0);
 	return 2;
 }
 
@@ -175,7 +163,7 @@ static int los_creat(lua_State *L)
 ** str, err = os.read(fd, n=nil)
 ** read n bytes or all available(if n is nil) from fd and return them as a string
 ** will never block even if fd is not nonblocking when n is nil
-** 
+**
 ** (str, err):
 ** 	(str, 0)  		succeed
 **  (nil, 0)  		no data available (together with readable-event means fd is half-closed).
@@ -183,21 +171,21 @@ static int los_creat(lua_State *L)
 **
 ** note that EINTR/EAGAIN/EWOUDLBLOCK are filtered
 */
-static int los_read(lua_State *L) 
+static int los_read(lua_State *L)
 {
-	int fd = luaL_checkinteger(L, 1);
+	int fd = (int)luaL_checkinteger(L, 1);
 	Buffer buffer;
 	size_t ndone = 0;
-	ssize_t nreq = (ssize_t)luaL_optint(L, 2, -1);
+	ssize_t nreq = (ssize_t)luaL_optinteger(L, 2, -1);
 	int err;
-	
+
 	buffer_init(&buffer, 0);
 	err = os_read(fd, &buffer, nreq, &ndone);
-	if (err == 0 && ndone > 0) 
+	if (err == 0 && ndone > 0)
 		lua_pushlstring(L, (const char*)buffer.data, buffer.datasiz);
 	else
 		lua_pushnil(L);
-		
+
 	lua_pushinteger(L, err);
 	buffer_finalize(&buffer);
 	return 2;
@@ -207,20 +195,20 @@ static int los_read(lua_State *L)
 ** nread, err = os.readb(fd, buffer, nbytes=-1)
 ** read n bytes or all available(if n is nil) from fd and push them into buffer
 ** will never block even if fd is not nonblocking when n is nil
-** 
-** return number of bytes read plus the error code 
+**
+** return number of bytes read plus the error code
 ** (nread, err):
 ** 	(>0, 0)  		succeed
 **  (==0, 0)  		no data available (together with readable-event means fd is half-closed).
 ** 	(==0, non-0)  	error on fd
-** 
+**
 ** note that EINTR/EAGAIN/EWOUDLBLOCK are filtered
 */
 static int los_readb(lua_State *L)
 {
-	int fd = luaL_checkinteger(L, 1);
+	int fd = (int)luaL_checkinteger(L, 1);
 	Buffer *buffer = buffer_lcheck(L, 2);
-	ssize_t nreq = luaL_optint(L, 3, -1);
+	ssize_t nreq = luaL_optinteger(L, 3, -1);
 	size_t ndone = 0;
 	int err = os_read(fd, buffer, nreq, &ndone);
 	lua_pushinteger(L, ndone);
@@ -234,38 +222,55 @@ static int los_readb(lua_State *L)
 */
 static int los_getnread(lua_State *L)
 {
-	int fd = luaL_checkinteger(L, 1);
 	size_t n;
 
-	if (os_getnread(fd, &n) != 0)
+	if (os_getnread((int)luaL_checkinteger(L, 1), &n) != 0)
 		n = 0;
-		
+
 	lua_pushinteger(L, n);
 	return 1;
 }
 
 /*
+** filepath, err = os.readlinke(filepath)
+*/
+static int los_readlink(lua_State *L)
+{
+	char buf[PATH_MAX];
+	const char *filepath = luaL_checkstring(L, 1);
+	ssize_t n = readlink(filepath, buf, sizeof(buf));
+	if (n >= 0) {
+		lua_pushlstring(L, buf, (size_t)n);
+		lua_pushinteger(L, 0);
+	} else {
+		lua_pushnil(L);
+		lua_pushinteger(L, errno);
+	}
+	return 2;
+}
+
+/*
 ** nwrite, err = os.write(fd, ...)
 ** write a list of values(strings or things with tostring ability)
-** 
+**
 ** return number of bytes written, plus the error code
-** 
+**
 ** note that EINTR/EAGAIN/EWOUDLBLOCK are filtered
 */
-static int los_write(lua_State *L) 
+static int los_write(lua_State *L)
 {
-	int fd = luaL_checkinteger(L, 1);
+	int fd = (int)luaL_checkinteger(L, 1);
 	int top = lua_gettop(L);
 	size_t ndone;
 	int err;
-	
+
 	if (top == 2) {
 		size_t nreq = 0;
 		const char *str = luaL_checklstring(L, 2, &nreq);
 		err = os_write(fd, (const uint8*)str, nreq, &ndone);
 	} else {
 		Buffer *buffer;
-		
+
 		lua_pushlightuserdata(L, los_write);
 		lua_gettable(L, LUA_REGISTRYINDEX);
 		if (lua_isuserdata(L, -1)) {
@@ -277,7 +282,7 @@ static int los_write(lua_State *L)
 			lua_settable(L, LUA_REGISTRYINDEX);
 			buffer_init(buffer, 0);
 		}
-		
+
 		for (int i = 2; i <= top; i++) {
 			size_t len = 0;
 			const char *str = lua_tolstring(L, i, &len);
@@ -288,7 +293,7 @@ static int los_write(lua_State *L)
 				lua_error(L);
 			}
 		}
-		err = os_write(fd, buffer->data, buffer->datasiz, &ndone);	
+		err = os_write(fd, buffer->data, buffer->datasiz, &ndone);
 	}
 	lua_pushinteger(L, ndone);
 	lua_pushinteger(L, err);
@@ -297,10 +302,10 @@ static int los_write(lua_State *L)
 
 /*
 ** nwrite, err = os.writeb(fd, buffer/reader, offset=0, length=all)
-** 
-** 
+**
+**
 ** return number of bytes written, plus the error code
-** 
+**
 ** note that EINTR/EAGAIN/EWOUDLBLOCK are filtered
 */
 static int los_writeb(lua_State *L)
@@ -311,12 +316,12 @@ static int los_writeb(lua_State *L)
 	}ptr;
 	const uint8 *data = NULL;
 	size_t datasiz = 0;
-	int fd = luaL_checkint(L, 1);
-	size_t offset = (size_t)luaL_optint(L, 3, 0);
+	int fd = (int)luaL_checkinteger(L, 1);
+	size_t offset = (size_t)luaL_optinteger(L, 3, 0);
 	size_t length = 0;
 	size_t ndone = 0;
 	int err = 0;
-	
+
 	ptr.buffer = (const Buffer*)lua_touserdata(L, 2);
 	if (ptr.buffer != NULL) {
 		if (ptr.buffer->magic == BUFFER_MAGIC) {
@@ -332,16 +337,16 @@ static int los_writeb(lua_State *L)
 	if (ptr.buffer == NULL) {
 		luaL_error(L, "expecting userdata buffer/reader for argument 2");
 	}
-	
+
 	length = datasiz;
-	if (lua_gettop(L) >= 4) 
-		length = (size_t)luaL_checkint(L, 4);
+	if (lua_gettop(L) >= 4)
+		length = (size_t)luaL_checkinteger(L, 4);
 
 	if (offset >= datasiz)
 		length = 0;
 	else if ((offset + length) > datasiz)
 		length = (datasiz - offset);
-	
+
 	if (length > 0)
 		err = os_write(fd, data + offset, length, &ndone);
 
@@ -353,18 +358,18 @@ static int los_writeb(lua_State *L)
 /*
 ** currpos, err = os.lseek(fd, offset, whence)
 */
-static int los_lseek(lua_State *L) 
+static int los_lseek(lua_State *L)
 {
 	int fd, err = 0;
 	off_t offset = 0;
-	int whence = luaL_checkinteger(L, 3);
-	
+	int whence = (int)luaL_checkinteger(L, 3);
+
 	if (whence != SEEK_SET
 		&& whence != SEEK_CUR
 		&& whence != SEEK_END) {
 		err = EINVAL;
 	} else {
-		fd = luaL_checkinteger(L, 1);
+		fd = (int)luaL_checkinteger(L, 1);
 		offset = (off_t)luaL_checkinteger(L, 2);
 		offset = lseek(fd, offset, whence);
 		if (offset < 0) {
@@ -380,9 +385,9 @@ static int los_lseek(lua_State *L)
 /*
 ** err = os.fsync(fd)
 */
-static int los_fsync(lua_State *L) 
+static int los_fsync(lua_State *L)
 {
-	int fd = luaL_checkinteger(L, 1);
+	int fd = (int)luaL_checkinteger(L, 1);
 	int err = fsync(fd);
 	lua_pushinteger(L, err ? errno : 0);
 	return 1;
@@ -391,9 +396,9 @@ static int los_fsync(lua_State *L)
 /*
 ** err = os.fdatasync(fd)
 */
-static int los_fdatasync(lua_State *L) 
+static int los_fdatasync(lua_State *L)
 {
-	int fd = luaL_checkinteger(L, 1);
+	int fd = (int)luaL_checkinteger(L, 1);
 	int err = fdatasync(fd);
 	lua_pushinteger(L, err ? errno : 0);
 	return 1;
@@ -415,7 +420,7 @@ static int los_truncate(lua_State *L)
 */
 static int los_ftruncate(lua_State *L)
 {
-	int fd = luaL_checkinteger(L, 1);
+	int fd = (int)luaL_checkinteger(L, 1);
 	off_t off = (off_t)luaL_checkinteger(L, 2);
 	lua_pushinteger(L, ftruncate(fd, off) == 0 ? 0 : errno);
 	return 1;
@@ -424,9 +429,9 @@ static int los_ftruncate(lua_State *L)
 /*
 ** new_fd, err = os.dup(fd)
 */
-static int los_dup(lua_State *L) 
+static int los_dup(lua_State *L)
 {
-	int fd = luaL_checkinteger(L, 1);
+	int fd = (int)luaL_checkinteger(L, 1);
 	int new_fd = dup(fd);
 	lua_pushinteger(L, new_fd);
 	lua_pushinteger(L, new_fd >= 0 ? 0 : errno);
@@ -436,10 +441,10 @@ static int los_dup(lua_State *L)
 /*
 ** new_fd, err = os.dup2(fd, fd2)
 */
-static int los_dup2(lua_State *L) 
+static int los_dup2(lua_State *L)
 {
-	int fd = luaL_checkinteger(L, 1);
-	int fd2 = luaL_checkinteger(L, 2);
+	int fd = (int)luaL_checkinteger(L, 1);
+	int fd2 = (int)luaL_checkinteger(L, 2);
 	int new_fd = dup2(fd, fd2);
 	lua_pushinteger(L, new_fd);
 	lua_pushinteger(L, new_fd >= 0 ? 0 : errno);
@@ -450,7 +455,7 @@ static int los_dup2(lua_State *L)
 ** err = os.close(fd)
 */
 static int los_close(lua_State *L) {
-	int fd = luaL_checkinteger(L, 1);
+	int fd = (int)luaL_checkinteger(L, 1);
 	int err = close(fd);
 	lua_pushinteger(L, err ? errno : 0);
 	return 1;
@@ -458,22 +463,22 @@ static int los_close(lua_State *L) {
 
 /*
 ** err = os.closerange(minfd=0, maxfd=FD_SETSIZE)
-** 
+**
 ** close every fd in the range [minfd, maxfd]
 */
 static int los_closerange(lua_State *L)
 {
-	int minfd = luaL_optint(L, 1, 0);
-	int maxfd = luaL_optint(L, 2, FD_SETSIZE);
-	
+	int minfd = (int)luaL_optinteger(L, 1, 0);
+	int maxfd = (int)luaL_optinteger(L, 2, FD_SETSIZE);
+
 	if (minfd < 0)
 		minfd = 0;
-	
+
 	if (maxfd >= minfd) {
-		for (int i = minfd; i <= maxfd; i++) 
+		for (int i = minfd; i <= maxfd; i++)
 			close(i);
 	}
-	
+
 	return 0;
 }
 
@@ -482,7 +487,7 @@ static int los_closerange(lua_State *L)
 */
 static int los_setnonblock(lua_State *L)
 {
-	int fd = luaL_checkint(L, 1);
+	int fd = (int)luaL_checkinteger(L, 1);
 	int fl = fcntl(fd, F_GETFL, 0);
 	if (fl >= 0) {
 		fcntl(fd, F_SETFL, fl | O_NONBLOCK);
@@ -495,7 +500,7 @@ static int los_setnonblock(lua_State *L)
 */
 static int los_setcloexec(lua_State *L)
 {
-	int fd = luaL_checkint(L, 1);
+	int fd = (int)luaL_checkinteger(L, 1);
 	int val = fcntl(fd, F_GETFD, 0);
 	if (val >= 0) {
 		fcntl(fd, F_SETFD, val | FD_CLOEXEC);
@@ -508,7 +513,7 @@ static int los_setcloexec(lua_State *L)
 */
 static int los_isatty(lua_State *L)
 {
-	lua_pushboolean(L, isatty(luaL_checkint(L, 1)));
+	lua_pushboolean(L, isatty((int)luaL_checkinteger(L, 1)));
 	return 1;
 }
 
@@ -524,7 +529,7 @@ static int los_system(lua_State *L) {
 /*
 ** pid, err = os.fork()
 */
-static int los_fork(lua_State *L) 
+static int los_fork(lua_State *L)
 {
 	pid_t pid = fork();
 	int err = pid < 0 ? errno : 0;
@@ -536,7 +541,7 @@ static int los_fork(lua_State *L)
 /*
 ** pid, err = os.vfork()
 */
-static int los_vfork(lua_State *L) 
+static int los_vfork(lua_State *L)
 {
 	pid_t pid = vfork();
 	int err = pid < 0 ? errno : 0;
@@ -548,7 +553,7 @@ static int los_vfork(lua_State *L)
 /*
 ** rdfd, wrfd, err = os.pipe()
 */
-static int los_pipe(lua_State *L) 
+static int los_pipe(lua_State *L)
 {
 	int fd[2];
 	int err = pipe(fd);
@@ -566,7 +571,7 @@ static int los_pipe(lua_State *L)
 
 /*
 ** pid = os.setsid()
-** 
+**
 ** pid will be -1 if failed, the only reason is permission-denied
 */
 static int los_setsid(lua_State *L)
@@ -641,7 +646,7 @@ static int los_setuid(lua_State *L)
 	lua_pushinteger(L, err);
 	return 1;
 }
-	
+
 /*
 ** err = os.seteuid(uid)
 */
@@ -704,9 +709,9 @@ static int los_wait(lua_State *L)
 static int los_waitpid(lua_State *L)
 {
 	pid_t pid = (pid_t)luaL_checkinteger(L, 1);
-	int flags = luaL_optint(L, 2, 0);
+	int flags = (int)luaL_optinteger(L, 2, 0);
 	int status = 0;
-	
+
 	pid = waitpid(pid, &status, flags);
 	if (pid >= 0) {
 		lua_pushinteger(L, (int)pid);
@@ -723,7 +728,7 @@ static int los_waitpid(lua_State *L)
 */
 static int los_WEXITSTATUS(lua_State *L)
 {
-	int status = luaL_checkinteger(L, 1);
+	int status = (int)luaL_checkinteger(L, 1);
 	lua_pushinteger(L, WEXITSTATUS(status));
 	return 1;
 }
@@ -734,7 +739,7 @@ static int los_WEXITSTATUS(lua_State *L)
 */
 static int los_WIFCONTINUED(lua_State *L)
 {
-	int status = luaL_checkinteger(L, 1);
+	int status = (int)luaL_checkinteger(L, 1);
 	lua_pushinteger(L, WIFCONTINUED(status));
 	return 1;
 }
@@ -745,7 +750,7 @@ static int los_WIFCONTINUED(lua_State *L)
 */
 static int los_WIFEXITED(lua_State *L)
 {
-	int status = luaL_checkinteger(L, 1);
+	int status = (int)luaL_checkinteger(L, 1);
 	lua_pushinteger(L, WIFEXITED(status));
 	return 1;
 }
@@ -755,7 +760,7 @@ static int los_WIFEXITED(lua_State *L)
 */
 static int los_WIFSIGNALED(lua_State *L)
 {
-	int status = luaL_checkinteger(L, 1);
+	int status = (int)luaL_checkinteger(L, 1);
 	lua_pushinteger(L, WIFSIGNALED(status));
 	return 1;
 }
@@ -765,7 +770,7 @@ static int los_WIFSIGNALED(lua_State *L)
 */
 static int los_WIFSTOPPED(lua_State *L)
 {
-	int status = luaL_checkinteger(L, 1);
+	int status = (int)luaL_checkinteger(L, 1);
 	lua_pushinteger(L, WIFSTOPPED(status));
 	return 1;
 }
@@ -775,7 +780,7 @@ static int los_WIFSTOPPED(lua_State *L)
 */
 static int los_WSTOPSIG(lua_State *L)
 {
-	int status = luaL_checkinteger(L, 1);
+	int status = (int)luaL_checkinteger(L, 1);
 	lua_pushinteger(L, WSTOPSIG(status));
 	return 1;
 }
@@ -785,7 +790,7 @@ static int los_WSTOPSIG(lua_State *L)
 */
 static int los_WTERMSIG(lua_State *L)
 {
-	int status = luaL_checkinteger(L, 1);
+	int status = (int)luaL_checkinteger(L, 1);
 	lua_pushinteger(L, WTERMSIG(status));
 	return 1;
 }
@@ -809,7 +814,7 @@ static int los_execl(lua_State *L)
 		argv[argc] = NULL;
 		execv(path, argv);
 		lua_pushinteger(L, errno);
-	}	
+	}
 	return 1;
 }
 
@@ -848,6 +853,7 @@ static const luaL_Reg funcs[] = {
 	{"readb", los_readb},
 	{"write", los_write},
 	{"writeb", los_writeb},
+	{"readlink", los_readlink},
 	{"lseek", los_lseek},
 	{"fsync", los_fsync},
 	{"fdatasync", los_fdatasync},
@@ -861,7 +867,7 @@ static const luaL_Reg funcs[] = {
 	{"setnonblock", los_setnonblock},
 	{"setcloexec", los_setcloexec},
 	{"isatty", los_isatty},
-	
+
 	{"setsid", los_setsid},
 	{"getpid", los_getpid},
 	{"getppid", los_getppid},
@@ -873,7 +879,7 @@ static const luaL_Reg funcs[] = {
 	{"seteuid", los_seteuid},
 	{"setgid", los_setgid},
 	{"setegid", los_setegid},
-	
+
 	{"execl", los_execl},
 	{"system", los_system},
 	{"fork", los_fork},
@@ -889,11 +895,11 @@ static const luaL_Reg funcs[] = {
 	{"WIFSTOPPED", los_WIFSTOPPED},
 	{"WSTOPSIG", los_WSTOPSIG},
 	{"WTERMSIG", los_WTERMSIG},
-		
+
 	{NULL, NULL}
 };
 
-int l_openos(lua_State *L) 
+int l_openos(lua_State *L)
 {
 	l_register_lib(L, "os", funcs, enums);
 	return 0;

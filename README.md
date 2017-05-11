@@ -1,4 +1,8 @@
-# lask
+Lask
+=====
+
+[README](README.md) | [中文](README_zh.md)
+
 Lua is a promising language on embedded systems of intelligent devices. The language is elegant, clean, and it costs reasonable resources but can be programmed very fast and easily.
 
 Lask provides a foundation library wrapping the posix API and an async I/O communication framework for the lua programing language.
@@ -6,9 +10,9 @@ Lask provides a foundation library wrapping the posix API and an async I/O commu
 The main goal is to relieve embedded C programmers(like myself) of endless cross-compiling, and help them to finish their job as quickly as their web development fellows.
 
 
-###An ECHO-SERVER for example.
+### An ECHO-SERVER for example.
 
-####**Multi Process Style**
+#### **Multi Process Style**
 
 ```lua
 require 'std'
@@ -39,7 +43,7 @@ while true do
 end
 ```
 
-####**IO-Multiplexing Style**
+#### **IO-Multiplexing Style**
 ```lua
 require 'std'
 
@@ -66,7 +70,7 @@ while true do
 end
 ```
 
-####**Using the Async I/O Framework (tasklet)**
+#### **Using the Async I/O Framework (tasklet)**
 At a glance, the tasklet way uses more code than the other two, but the truth is it's far more powerful and flexible.
 
 ```lua
@@ -109,7 +113,7 @@ end)
 tasklet.loop()
 ```
 
-####**Echo over SSL using tasklet**
+#### **Echo over SSL using tasklet**
 
 ```lua
 require 'std'
@@ -119,7 +123,7 @@ require 'tasklet.channel.streamserver'
 
 local ch_server = tasklet.create_tcpserver_channel('0.0.0.0', 9988)
 local ctx = ssl.context.new('sslv23')
-if ctx:load_verify_locations('root.pem') ~= 0 or 
+if ctx:load_verify_locations('root.pem') ~= 0 or
    ctx:use_certfile('server.pem') ~= 0  or
    ctx:use_keyfile('server_key.pem', 'passwd') ~= 0 or
    not ch_server then
@@ -147,7 +151,7 @@ local function serve_the_client(fd)
 end
 
 tasklet.start_task(function ()
-    while true do 
+    while true do
         local fd = ch_server:accept()
         if fd >= 0 then
             serve_the_client(fd)

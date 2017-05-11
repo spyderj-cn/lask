@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) Spyderj
+ * Copyright (C) spyder
  */
 
 
@@ -26,7 +26,7 @@ typedef struct {
 	int	freed;
 } glob_context_t;
 
-static int lfs_dir_next(lua_State *L) 
+static int lfs_dir_next(lua_State *L)
 {
 	DIR **pdir = (DIR**)luaL_checkudata(L, 1, FS_DIR_META);
 	DIR *dir = *pdir;
@@ -44,7 +44,7 @@ static int lfs_dir_next(lua_State *L)
 	return 0;
 }
 
-static int lfs_dir_close(lua_State *L) 
+static int lfs_dir_close(lua_State *L)
 {
 	DIR **pdir = (DIR**)luaL_checkudata(L, 1, FS_DIR_META);
 	if (*pdir != NULL) {
@@ -57,7 +57,7 @@ static int lfs_dir_close(lua_State *L)
 /*
 ** for entry in fs.dir(path) do ... end
 */
-static int lfs_dir(lua_State *L) 
+static int lfs_dir(lua_State *L)
 {
 	const char *path = luaL_optstring(L, 1, ".");
 	DIR *dir = opendir(path);
@@ -76,7 +76,7 @@ static int lfs_dir(lua_State *L)
 /*
 ** filelist, err = fs.listdir(path)
 */
-static int lfs_listdir(lua_State *L) 
+static int lfs_listdir(lua_State *L)
 {
 	const char *path = luaL_optstring(L, 1, ".");
 	DIR *dir = opendir(path);
@@ -103,7 +103,7 @@ static int lfs_listdir(lua_State *L)
 	return 2;
 }
 
-static int lfs_glob_next(lua_State *L) 
+static int lfs_glob_next(lua_State *L)
 {
 	glob_context_t *ctx = lua_touserdata(L, lua_upvalueindex(1));
 	if (!ctx->freed && ctx->pos < ctx->gl.gl_pathc) {
@@ -118,7 +118,7 @@ static int lfs_glob_next(lua_State *L)
 	return 1;
 }
 
-static int lfs_glob_gc(lua_State *L) 
+static int lfs_glob_gc(lua_State *L)
 {
 	glob_context_t *ctx = lua_touserdata(L, 1);
 	if (ctx && !ctx->freed) {
@@ -137,12 +137,12 @@ static int iternil(lua_State *L)
 /*
 ** for path in fs.glob(...) do ... end
 */
-static int lfs_glob(lua_State *L) 
+static int lfs_glob(lua_State *L)
 {
 	 const char *pattern = luaL_optstring(L, 1, "*");
 	 glob_context_t *globres = lua_newuserdata(L, sizeof(glob_context_t));
 	 int globstat = 0;
-	 
+
 	 globres->pos = 0;
 	 globres->freed = 0;
 
@@ -162,7 +162,7 @@ static int lfs_glob(lua_State *L)
 /*
 ** errno = fs.chdir(path)
 */
-static int lfs_chdir(lua_State *L) 
+static int lfs_chdir(lua_State *L)
 {
 	const char *dir = lua_tostring(L, 1);
 	int err = chdir(dir);
@@ -173,7 +173,7 @@ static int lfs_chdir(lua_State *L)
 /*
 ** path = fs.getcwd()
 */
-static int lfs_getcwd(lua_State *L) 
+static int lfs_getcwd(lua_State *L)
 {
 	char buf[PATH_MAX + 1];
 	lua_pushstring(L, getcwd(buf, PATH_MAX));
@@ -183,7 +183,7 @@ static int lfs_getcwd(lua_State *L)
 /*
 ** err = fs.mkdir(path)
 */
-static int lfs_mkdir(lua_State *L) 
+static int lfs_mkdir(lua_State *L)
 {
 	int err;
 	mode_t mode;
@@ -201,13 +201,13 @@ static int makedirs(const char *path, mode_t mode)
 {
 	char buf[PATH_MAX + 1];
 	size_t len = strlen(path);
-	
+
 	len = MIN(PATH_MAX, len);
 	memcpy(buf, path, len);
 	buf[len] = 0;
 	if (buf[len - 1] == '/')
 		buf[len - 1] = 0;
-	
+
 	if (access(path, F_OK) == 0) {
 		return 0;
 	} else {
@@ -218,7 +218,7 @@ static int makedirs(const char *path, mode_t mode)
 		else
 			return mkdir(path, mode) == 0 ? 0 : errno;
 	}
-} 
+}
 
 /*
 ** err = fs.mkdir_p(path)
@@ -240,7 +240,7 @@ static int lfs_mkdir_p(lua_State *L)
 /*
 ** err = fs.rmdir(path)
 */
-static int lfs_rmdir(lua_State *L) 
+static int lfs_rmdir(lua_State *L)
 {
 	int err = rmdir(luaL_checkstring(L, 1));
 	lua_pushinteger(L, err ? errno : 0);
@@ -250,7 +250,7 @@ static int lfs_rmdir(lua_State *L)
 /*
 ** err = fs.unlink(path)
 */
-static int lfs_unlink(lua_State *L) 
+static int lfs_unlink(lua_State *L)
 {
 	int err = unlink(luaL_checkstring(L, 1));
 	lua_pushinteger(L, err ? errno : 0);
@@ -260,7 +260,7 @@ static int lfs_unlink(lua_State *L)
 /*
 ** err = fs.access(path, mode)
 */
-static int lfs_access(lua_State *L) 
+static int lfs_access(lua_State *L)
 {
 	const char *path = luaL_checkstring(L, 1);
 	int mode = luaL_checkinteger(L, 2);
@@ -272,7 +272,7 @@ static int lfs_access(lua_State *L)
 /*
 ** name = fs.basename(path)
 */
-static int lfs_basename(lua_State *L) 
+static int lfs_basename(lua_State *L)
 {
 	const char *path = luaL_checkstring(L, 1);
 	char base[PATH_MAX];
@@ -285,7 +285,7 @@ static int lfs_basename(lua_State *L)
 /*
 ** name = fs.dirname(path)
 */
-static int lfs_dirname(lua_State *L) 
+static int lfs_dirname(lua_State *L)
 {
 	const char *path = luaL_checkstring(L, 1);
 	char base[PATH_MAX];
@@ -298,7 +298,7 @@ static int lfs_dirname(lua_State *L)
 /*
 ** name = fs.realpath(path)
 */
-static int lfs_realpath(lua_State *L) 
+static int lfs_realpath(lua_State *L)
 {
 	const char *path = luaL_checkstring(L, 1);
 	char real[PATH_MAX];
@@ -311,47 +311,47 @@ static int lfs_realpath(lua_State *L)
 	return 1;
 }
 
-static int ustat_retval(lua_State *L, struct stat *st, int err) 
+static int ustat_retval(lua_State *L, struct stat *st, int err)
 {
 	if (err != 0) {
 		lua_pushnil(L);
 		lua_pushinteger(L, errno);
 	} else {
 		int field = lua_tointeger(L, -1);
-		lua_Number n = (lua_Number)0;
+		lua_Integer n = 0;
 		switch (field) {
-		case ST_DEV: n = (lua_Number)st->st_dev;
+		case ST_DEV: n = (lua_Integer)st->st_dev;
 			break;
-		case ST_RDEV: n = (lua_Number)st->st_rdev;
+		case ST_RDEV: n = (lua_Integer)st->st_rdev;
 			break;
-		case ST_INO: n = (lua_Number)st->st_ino;
+		case ST_INO: n = (lua_Integer)st->st_ino;
 			break;
-		case ST_NLINK: n = (lua_Number)st->st_nlink;
+		case ST_NLINK: n = (lua_Integer)st->st_nlink;
 			break;
-		case ST_UID:  n = (lua_Number)st->st_uid;
+		case ST_UID:  n = (lua_Integer)st->st_uid;
 			break;
-		case ST_GID: n = (lua_Number)st->st_gid;
+		case ST_GID: n = (lua_Integer)st->st_gid;
 			break;
-		case ST_ATIME: n = (lua_Number)st->st_atime;
+		case ST_ATIME: n = (lua_Integer)st->st_atime;
 			break;
-		case ST_MTIME: n = (lua_Number)st->st_mtime;
+		case ST_MTIME: n = (lua_Integer)st->st_mtime;
 			break;
-		case ST_CTIME: n = (lua_Number)st->st_ctime;
+		case ST_CTIME: n = (lua_Integer)st->st_ctime;
 			break;
-		case ST_MODE: n = (lua_Number)st->st_mode;
+		case ST_MODE: n = (lua_Integer)st->st_mode;
 			break;
-		case ST_SIZE: n = (lua_Number)st->st_size;
+		case ST_SIZE: n = (lua_Integer)st->st_size;
 			break;
 		default:
 			break;
 		}
-		lua_pushnumber(L, n);
+		lua_pushinteger(L, n);
 		lua_pushinteger(L, 0);
 	}
 	return 2;
 }
 
-static int stat_retval(lua_State *L, struct stat *st, int err) 
+static int stat_retval(lua_State *L, struct stat *st, int err)
 {
 	if (err != 0) {
 		lua_pushnil(L);
@@ -425,7 +425,7 @@ static int stat_retval(lua_State *L, struct stat *st, int err)
 /*
 ** value, err = fs.ustat(path, field)
 */
-static int lfs_ustat(lua_State *L) 
+static int lfs_ustat(lua_State *L)
 {
 	struct stat st;
 	int err = stat(lua_tostring(L, 1), &st);
@@ -435,7 +435,7 @@ static int lfs_ustat(lua_State *L)
 /*
 ** { size = ..., atime = ..., ...}/nil = fs.stat(path)
 */
-static int lfs_stat(lua_State *L) 
+static int lfs_stat(lua_State *L)
 {
 	struct stat st;
 	int err = stat(lua_tostring(L, 1), &st);
@@ -445,7 +445,7 @@ static int lfs_stat(lua_State *L)
 /*
 ** value, err = fs.ulstat(path)
 */
-static int lfs_ulstat(lua_State *L) 
+static int lfs_ulstat(lua_State *L)
 {
 	struct stat st;
 	int err = lstat(lua_tostring(L, 1), &st);
@@ -455,7 +455,7 @@ static int lfs_ulstat(lua_State *L)
 /*
 ** { size = ..., atime = ..., ...}/nil, err = fs.lstat(path)
 */
-static int lfs_lstat(lua_State *L) 
+static int lfs_lstat(lua_State *L)
 {
 	struct stat st;
 	int err = lstat(lua_tostring(L, 1), &st);
@@ -465,7 +465,7 @@ static int lfs_lstat(lua_State *L)
 /*
 ** value, err = fs.ufstat(path)
 */
-static int lfs_ufstat(lua_State *L) 
+static int lfs_ufstat(lua_State *L)
 {
 	struct stat st;
 	int err = fstat(lua_tointeger(L, 1), &st);
@@ -475,10 +475,10 @@ static int lfs_ufstat(lua_State *L)
 /*
 ** { size = ..., atime = ..., ...}/nil, err = fs.fstat(path)
 */
-static int lfs_fstat(lua_State *L) 
+static int lfs_fstat(lua_State *L)
 {
 	struct stat st;
-	int err = fstat(luaL_checkint(L, 1), &st);
+	int err = fstat(luaL_checkinteger(L, 1), &st);
 	return stat_retval(L, &st, err);
 }
 
@@ -624,8 +624,8 @@ static int lfs_remove(lua_State *L)
 
 /*
 ** result, err = fs.readlink(path, buffer=nil)
-** 
-** result can be the number of bytes read if buffer is valid, 
+**
+** result can be the number of bytes read if buffer is valid,
 ** or be a string containing the content.
 */
 static int lfs_readlink(lua_State *L)
@@ -640,7 +640,7 @@ static int lfs_readlink(lua_State *L)
 		char *mem;
 		bool has_buffer = false;
 		ssize_t nread = 0;
-		
+
 		if (lua_type(L, 2) == LUA_TUSERDATA) {
 			Buffer *buffer = buffer_lcheck(L, 2);
 			mem = (char*)buffer_grow(buffer, size);
@@ -648,7 +648,7 @@ static int lfs_readlink(lua_State *L)
 		} else {
 			mem = (char*)MALLOC(size);
 		}
-		
+
 		if (mem != NULL) {
 			nread = readlink(path, mem, size);
 			if (nread < 0)
@@ -656,22 +656,22 @@ static int lfs_readlink(lua_State *L)
 		} else {
 			err = has_buffer ? EOVERFLOW : ENOMEM;
 		}
-		
+
 		if (err == 0) {
 			if (has_buffer)
 				lua_pushinteger(L, (int)nread);
 			else
 				lua_pushlstring(L, mem, size);
 		}
-		
+
 		if (!has_buffer && mem != NULL)
 			FREE(mem);
 	}
-	
+
 	if (err != 0)
 		lua_pushnil(L);
 	lua_pushinteger(L, err);
-	
+
 	return 2;
 }
 
@@ -691,8 +691,8 @@ static int lfs_umask(lua_State *L)
 static int lfs_chown(lua_State *L)
 {
 	const char *path = luaL_checkstring(L, 1);
-	uid_t uid = (uid_t)luaL_optint(L, 2, -1);
-	gid_t gid = (gid_t)luaL_optint(L, 3, -1);
+	uid_t uid = (uid_t)luaL_optinteger(L, 2, -1);
+	gid_t gid = (gid_t)luaL_optinteger(L, 3, -1);
 	int err = chown(path, uid, gid);
 	if (err < 0)
 		err = errno;
@@ -706,8 +706,8 @@ static int lfs_chown(lua_State *L)
 static int lfs_fchown(lua_State *L)
 {
 	int fd = luaL_checkinteger(L, 1);
-	uid_t uid = (uid_t)luaL_optint(L, 2, -1);
-	gid_t gid = (gid_t)luaL_optint(L, 3, -1);
+	uid_t uid = (uid_t)luaL_optinteger(L, 2, -1);
+	gid_t gid = (gid_t)luaL_optinteger(L, 3, -1);
 	int err = fchown(fd, uid, gid);
 	if (err < 0)
 		err = errno;
@@ -721,8 +721,8 @@ static int lfs_fchown(lua_State *L)
 static int lfs_lchown(lua_State *L)
 {
 	const char *path = luaL_checkstring(L, 1);
-	uid_t uid = (uid_t)luaL_optint(L, 2, -1);
-	gid_t gid = (gid_t)luaL_optint(L, 3, -1);
+	uid_t uid = (uid_t)luaL_optinteger(L, 2, -1);
+	gid_t gid = (gid_t)luaL_optinteger(L, 3, -1);
 	int err = lchown(path, uid, gid);
 	if (err < 0)
 		err = errno;
@@ -797,7 +797,7 @@ static int lfs_utimes(lua_State *L)
 	lua_Number atime = luaL_optnumber(L, 2, 0);
 	lua_Number mtime = luaL_optnumber(L, 3, 0);
 	int err;
-	
+
 	if (atime == 0) {
 		gettimeofday(&tv_now, NULL);
 		times[0] = tv_now;
@@ -805,7 +805,7 @@ static int lfs_utimes(lua_State *L)
 		times[0].tv_sec = (time_t)atime;
 		times[0].tv_usec = (suseconds_t)((atime - times[0].tv_sec) * 1000000);
 	}
-	
+
 	if (mtime == 0) {
 		if (tv_now.tv_sec == 0 && tv_now.tv_usec == 0)
 			gettimeofday(&tv_now, NULL);
@@ -814,11 +814,11 @@ static int lfs_utimes(lua_State *L)
 		times[1].tv_sec = (time_t)mtime;
 		times[1].tv_usec = (suseconds_t)((mtime - times[1].tv_sec) * 1000000);
 	}
-	
+
 	err = utimes(path, times);
 	if (err < 0)
 		err = errno;
-		
+
 	lua_pushinteger(L, err);
 	return 1;
 }
@@ -861,14 +861,14 @@ static const luaL_Reg funcs[] = {
 	{"basename", lfs_basename},
 	{"dirname", lfs_dirname},
 	{"realpath", lfs_realpath},
-	
+
 	{"getcwd", lfs_getcwd},
 	{"chdir", lfs_chdir},
 	{"fchdir", lfs_fchdir},
 	{"dir", lfs_dir},
 	{"listdir", lfs_listdir},
 	{"glob", lfs_glob},
-	
+
 	{"link", lfs_link},
 	{"symlink", lfs_symlink},
 	{"mkdir", lfs_mkdir},
@@ -877,7 +877,7 @@ static const luaL_Reg funcs[] = {
 	{"rmdir", lfs_rmdir},
 	{"remove", lfs_remove},
 	{"rename", lfs_rename},
-	
+
 	{"stat",lfs_stat},
 	{"ustat", lfs_ustat},
 	{"lstat",lfs_lstat},
@@ -888,7 +888,7 @@ static const luaL_Reg funcs[] = {
 	{"fstatvfs", lfs_fstatvfs},
 	{"access", lfs_access},
 	{"readlink", lfs_readlink},
-	
+
 	{"umask", lfs_umask},
 	{"chmod", lfs_chmod},
 	{"fchmod", lfs_fchmod},
@@ -898,11 +898,11 @@ static const luaL_Reg funcs[] = {
 	{"truncate", lfs_truncate},
 	{"ftruncate", lfs_ftruncate},
 	{"utimes", lfs_utimes},
-	
+
 	{NULL, NULL}
 };
 
-int l_openfs(lua_State *L) 
+int l_openfs(lua_State *L)
 {
 	l_register_metatable2(L, FS_DIR_META, dir_methods);
 	l_register_metatable2(L, FS_GLOB_META, glob_methods);

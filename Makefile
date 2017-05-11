@@ -1,74 +1,33 @@
 
-include $(TOPDIR)/rules.mk
+.PHONY: all clean install
 
-PKG_NAME:=lask
-PKG_VERSION:=1.0.0
+LIB_DIR=/usr/lib/lua/5.3
+TOP_DIR=${CURDIR}
 
-PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
+export CFLAGS+="-I${TOP_DIR}/include" -fPIC -std=c99
+export LDFLAGS+=-llua -lrt -shared
 
-include $(INCLUDE_DIR)/package.mk
+all:
+	make -C contrib/cjson all
+	make -C lask/ssl all
+	make -C lask/std all
+	make -C lask/zlib all
 
-define Build/Prepare
-	mkdir -p $(PKG_BUILD_DIR)
-	cp -r ./* $(PKG_BUILD_DIR)/
-endef
+install:
+	install -m 644 contrib/cjson/cjson.so ${LIB_DIR}/cjson.so
+	install -m 644 lask/ssl/ssl.so ${LIB_DIR}/ssl.so
+	install -m 644 lask/zlib/_zlib.so ${LIB_DIR}/_zlib.so
+	install -m 644 lask/zlib/zlib.lua ${LIB_DIR}/zlib.lua
 
-define Package/lask
-  SECTION:=lang
-  CATEGORY:=Languages
-  SUBMENU:=Lua
-  TITLE:=lask
-  DEPENDS:=+liblua +libopenssl +zlib +librt +lua
-endef
+	install -m 644 lask/std/_std.so ${LIB_DIR}/_std.so
+	install -m 644 lask/luasrc/*.lua ${LIB_DIR}/
+	install -d ${LIB_DIR}/tasklet
+	install -d ${LIB_DIR}/tasklet/channel
+	install -m 644 lask/luasrc/tasklet/*.lua ${LIB_DIR}/tasklet/
+	install -m 644 lask/luasrc/tasklet/channel/*.lua ${LIB_DIR}/tasklet/channel/
 
-define Package/lask-examples
-$(call Package/lask)
-  TITLE+= examples
-  DEPENDS:=+lask
-endef
-
-TARGET_CFLAGS+=-I$(PKG_BUILD_DIR)/include -fPIC -std=c99
-TARGET_LDFLAGS+=-llua -shared
-
-define Build/Compile	
-	$(MAKE) -C $(PKG_BUILD_DIR)/contrib/cjson \
-		$(TARGET_CONFIGURE_OPTS) \
-		CFLAGS="$(TARGET_CFLAGS) $(TARGET_CPPFLAGS)" LDFLAGS="$(TARGET_LDFLAGS)" \
-		all
-	$(MAKE) -C $(PKG_BUILD_DIR)/lask/ssl \
-		$(TARGET_CONFIGURE_OPTS) \
-		CFLAGS="$(TARGET_CFLAGS) $(TARGET_CPPFLAGS)" LDFLAGS="$(TARGET_LDFLAGS)" \
-		all
-	$(MAKE) -C $(PKG_BUILD_DIR)/lask/std \
-		$(TARGET_CONFIGURE_OPTS) \
-		CFLAGS="$(TARGET_CFLAGS) $(TARGET_CPPFLAGS)" LDFLAGS="$(TARGET_LDFLAGS)" \
-		all
-	$(MAKE) -C $(PKG_BUILD_DIR)/lask/zlib \
-		$(TARGET_CONFIGURE_OPTS) \
-		CFLAGS="$(TARGET_CFLAGS) $(TARGET_CPPFLAGS)" LDFLAGS="$(TARGET_LDFLAGS)" \
-		all
-endef
-
-define Package/lask/install
-	$(INSTALL_DIR) $(1)/usr/lib/lua
-	$(INSTALL_DIR) $(1)/usr/sbin
-	$(INSTALL_DIR) $(1)/usr/lib/lua/tasklet
-	$(INSTALL_DIR) $(1)/usr/lib/lua/tasklet/channel
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/contrib/cjson/cjson.so $(1)/usr/lib/lua
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/lask/std/_std.so $(1)/usr/lib/lua
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/lask/zlib/zlib.so $(1)/usr/lib/lua
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/lask/ssl/ssl.so  $(1)/usr/lib/lua
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/lask/luasrc/*.lua $(1)/usr/lib/lua/
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/lask/luasrc/tasklet/*.lua $(1)/usr/lib/lua/tasklet
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/lask/luasrc/tasklet/channel/*.lua $(1)/usr/lib/lua/tasklet/channel
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/lask/tools/ajax.lua  $(1)/usr/sbin/ajax
-endef
-
-define Package/lask-examples/install
-	$(INSTALL_DIR) $(1)/usr/lib/lua/lask-examples
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/examples/*.lua $(1)/usr/lib/lua/lask-examples
-endef	
-
-$(eval $(call BuildPackage,lask))
-$(eval $(call BuildPackage,lask-examples))
-
+clean:
+	make -C contrib/cjson clean
+	make -C lask/ssl clean
+	make -C lask/std clean
+	make -C lask/zlib clean

@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) Spyderj
+ * Copyright (C) spyder
  */
 
 
@@ -28,20 +28,20 @@ typedef union {
 #define SA_IS_IPV6(sa)				((sa).v4.sin_family == AF_INET6)
 #define SA_SIZE(sa)					(SA_IS_IPV4(sa) ? sizeof((sa).v4) : (SA_IS_IPV6(sa) ? sizeof((sa).v6) : sizeof((sa).un)))
 
-static int socket_socket(int domain, int type, int protocol, int *fd) 
+static int socket_socket(int domain, int type, int protocol, int *fd)
 {
 	*fd = socket(domain, type, protocol);
     return *fd >= 0 ? 0 : errno;
 }
 
-static bool sa_build(const char *addr, int port, sockaddr_x *sa) 
+static bool sa_build(const char *addr, int port, sockaddr_x *sa)
 {
 	if (strchr(addr, '/') != NULL) {
 		sa->un.sun_family = AF_UNIX;
 		strncpy(sa->un.sun_path, addr, sizeof(sa->un.sun_path) - 1);
 	} else if (strchr(addr, ':') != NULL) {
 		sa->v6.sin6_family = AF_INET6;
-		if (inet_pton(AF_INET6, addr, &sa->v6.sin6_addr) != 1) 
+		if (inet_pton(AF_INET6, addr, &sa->v6.sin6_addr) != 1)
 			return false;
 		sa->v6.sin6_port = htons((uint16)port);
 		sa->v6.sin6_flowinfo = 0;
@@ -58,7 +58,7 @@ static bool sa_build(const char *addr, int port, sockaddr_x *sa)
 static bool sa_parse(const sockaddr_x *sa, char *addr, int *port)
 {
 	int af = sa->v4.sin_family;
-	
+
 	if (af == AF_INET) {
 		inet_ntop(af, &sa->v4.sin_addr, addr, INET6_ADDRSTRLEN);
 		*port = (int)ntohs((uint16)sa->v4.sin_port);
@@ -69,17 +69,17 @@ static bool sa_parse(const sockaddr_x *sa, char *addr, int *port)
 		inet_ntop(af, &sa->v6.sin6_addr, addr, INET6_ADDRSTRLEN);
 		*port = (int)ntohs((uint16)sa->v6.sin6_port);
 	}
-		
+
 	return true;
 }
 
-int socket_shutdown(int fd, int how) 
+int socket_shutdown(int fd, int how)
 {
     shutdown(fd, how);
     return 0;
 }
 
-int socket_connect(int fd, const char *addr, int port) 
+int socket_connect(int fd, const char *addr, int port)
 {
     int err = 0;
     sockaddr_x sa;
@@ -91,7 +91,7 @@ int socket_connect(int fd, const char *addr, int port)
     return err;
 }
 
-int socket_bind(int fd, const char *addr, int port) 
+int socket_bind(int fd, const char *addr, int port)
 {
     int err = 0;
     sockaddr_x sa;
@@ -105,26 +105,26 @@ int socket_bind(int fd, const char *addr, int port)
     return err;
 }
 
-int socket_listen(int fd, int backlog) 
+int socket_listen(int fd, int backlog)
 {
     int err = 0;
 	if (backlog <= 0) {
 		backlog = SOMAXCONN;
 	}
-    
+
     if (listen(fd, backlog) < 0) {
     	err = errno;
     }
     return err;
 }
 
-int socket_accept(int fd, int *peer, char *addr, int *port) 
+int socket_accept(int fd, int *peer, char *addr, int *port)
 {
 	sockaddr_x sa;
 	socklen_t len = (socklen_t)sizeof(sa);
 	*peer = accept(fd, (SA*)&sa, &len);
 	if (*peer >= 0) {
-		if (addr != NULL || port != NULL) 
+		if (addr != NULL || port != NULL)
 			sa_parse(&sa, addr, port);
 		return 0;
 	} else {
@@ -132,12 +132,12 @@ int socket_accept(int fd, int *peer, char *addr, int *port)
 	}
 }
 
-int socket_recvfrom(int fd, uint8 *data, size_t count, int flags, char *addr, int *port, size_t *got) 
+int socket_recvfrom(int fd, uint8 *data, size_t count, int flags, char *addr, int *port, size_t *got)
 {
     int nrecv;
     sockaddr_x sa;
     socklen_t len = (socklen_t)sizeof(sa);
-	
+
     *got = 0;
     nrecv = recvfrom(fd, data, count, flags, (SA*)&sa, &len);
     if (nrecv >= 0) {
@@ -149,11 +149,11 @@ int socket_recvfrom(int fd, uint8 *data, size_t count, int flags, char *addr, in
     }
 }
 
-int socket_sendto(int fd, const void *data, size_t count, int flags, const char *addr, int port, size_t *sent) 
+int socket_sendto(int fd, const void *data, size_t count, int flags, const char *addr, int port, size_t *sent)
 {
     ssize_t nsend;
     sockaddr_x sa;
-	
+
     *sent = 0;
     if (!sa_build(addr, port, &sa)) {
 		return EFAULT;
@@ -168,7 +168,7 @@ int socket_sendto(int fd, const void *data, size_t count, int flags, const char 
     }
 }
 
-int socket_getpeername(int fd, char *addr, int *port) 
+int socket_getpeername(int fd, char *addr, int *port)
 {
 	sockaddr_x sa;
 	socklen_t len = (socklen_t)sizeof(sa);
@@ -180,7 +180,7 @@ int socket_getpeername(int fd, char *addr, int *port)
 	}
 }
 
-int socket_getsockname(int fd, char *addr, int *port) 
+int socket_getsockname(int fd, char *addr, int *port)
 {
 	sockaddr_x sa;
 	socklen_t len = (socklen_t)sizeof(sa);
@@ -195,15 +195,15 @@ int socket_getsockname(int fd, char *addr, int *port)
 /*
 ** fd, err = socket.socket(af, socktype, protocol=nil)
 */
-static int lsocket_socket(lua_State *L) 
+static int lsocket_socket(lua_State *L)
 {
 	int fd, err;
-	err = socket_socket(luaL_checkint(L, 1), luaL_checkint(L, 2), luaL_optint(L, 3, 0), &fd);
-	if (err == 0) {
-		lua_pushinteger(L, fd);
-	} else {
-		lua_pushinteger(L, -1);
-	}
+	err = socket_socket(
+		(int)luaL_checkinteger(L, 1),
+		(int)luaL_checkinteger(L, 2),
+		(int)luaL_optinteger(L, 3, 0), &fd);
+
+	lua_pushinteger(L, err == 0 ? fd : -1);
 	lua_pushinteger(L, err);
 	return 2;
 }
@@ -211,15 +211,15 @@ static int lsocket_socket(lua_State *L)
 /*
 ** err = socket.connect(fd, addr, port)
 */
-static int lsocket_connect(lua_State *L) 
+static int lsocket_connect(lua_State *L)
 {
-	int fd = luaL_checkint(L, 1);
+	int fd = (int)luaL_checkinteger(L, 1);
 	const char *addr = luaL_checkstring(L, 2);
-	int port = luaL_optint(L, 3, 0);
+	int port = (int)luaL_optinteger(L, 3, 0);
 	int err;
 	do {
 		err = socket_connect(fd, addr, port);
-		if (err == 0 || err != EINTR) 
+		if (err == 0 || err != EINTR)
 			break;
 	} while (1);
 	lua_pushinteger(L, err);
@@ -229,9 +229,12 @@ static int lsocket_connect(lua_State *L)
 /*
 ** err = socket.bind(fd, addr, port)
 */
-static int lsocket_bind(lua_State *L) 
+static int lsocket_bind(lua_State *L)
 {
-	int err = socket_bind(luaL_checkint(L, 1), luaL_checkstring(L, 2), luaL_optint(L, 3, 0));
+	int err = socket_bind(
+		(int)luaL_checkinteger(L, 1),
+		luaL_checkstring(L, 2),
+		(int)luaL_optinteger(L, 3, 0));
 	lua_pushinteger(L, err);
 	return 1;
 }
@@ -239,10 +242,10 @@ static int lsocket_bind(lua_State *L)
 /*
 ** err = socket.listen(fd, backlog=socket.SOMAXCONN)
 */
-static int lsocket_listen(lua_State *L) 
+static int lsocket_listen(lua_State *L)
 {
-	int fd = luaL_checkint(L, 1);
-	int backlog = luaL_optint(L, 1, SOMAXCONN);
+	int fd = (int)luaL_checkinteger(L, 1);
+	int backlog = (int)luaL_optinteger(L, 1, SOMAXCONN);
 	int err = socket_listen(fd, backlog);
 	lua_pushinteger(L, err);
 	return 1;
@@ -251,9 +254,9 @@ static int lsocket_listen(lua_State *L)
 /*
 ** fd, addr, port, err = socket.accept(fd)
 */
-static int lsocket_accept(lua_State *L) 
+static int lsocket_accept(lua_State *L)
 {
-	int fd = luaL_checkint(L, 1);
+	int fd = (int)luaL_checkinteger(L, 1);
 	int peerfd;
 	char addr[MAX_ADDRSTRLEN];
 	int port;
@@ -271,30 +274,30 @@ static int lsocket_accept(lua_State *L)
 	return 4;
 }
 
-/* 
+/*
 ** str/nil, addr/nil, port/nil, err = socket.recvfrom(fd)
 **
 ** won't block even if the fd is working in blocking mode.
 */
 static int lsocket_recvfrom(lua_State *L) {
-	int fd = luaL_checkint(L, 1);
+	int fd = (int)luaL_checkinteger(L, 1);
 	char addr[MAX_ADDRSTRLEN];
 	int port;
 	Buffer buf;
 	size_t navaiable = 0;
 	int err = 0;
-	
+
 	buffer_init(&buf, 0);
 	err = os_getnread(fd, &navaiable);
 	if (navaiable > 0) {
 		uint8 *p = buffer_grow(&buf, (size_t)navaiable);
 		size_t nread = 0;
 		err = socket_recvfrom(fd, p, navaiable, 0, addr, &port, &nread);
-		
+
 		if (nread < navaiable)
 			buffer_pop(&buf, navaiable - nread);
 	}
-	
+
 	if (err != 0 || navaiable == 0) {
 		lua_pushnil(L);
 		lua_pushnil(L);
@@ -307,32 +310,32 @@ static int lsocket_recvfrom(lua_State *L) {
 		lua_pushinteger(L, 0);
 	}
 	buffer_finalize(&buf);
-		
+
 	return 4;
 }
 
-/* 
+/*
 ** nread, addr/nil, port/nil, err = socket.recvfromb(fd, buffer)
 **
 ** won't block even if the fd is working in blocking mode.
 */
 static int lsocket_recvfromb(lua_State *L) {
-	int fd = luaL_checkint(L, 1);
+	int fd = (int)luaL_checkinteger(L, 1);
 	Buffer *buf = buffer_lcheck(L, 2);
 	char addr[MAX_ADDRSTRLEN];
 	int port;
 	size_t navaiable = 0, nread = 0;
 	int err = 0;
-	
+
 	err = os_getnread(fd, &navaiable);
 	if (navaiable > 0) {
 		uint8 *p = buffer_grow(buf, (size_t)navaiable);
 		err = socket_recvfrom(fd, p, navaiable, 0, addr, &port, &nread);
-		
+
 		if (nread < navaiable)
 			buffer_pop(buf, navaiable - nread);
 	}
-	
+
 	if (err != 0 || navaiable == 0) {
 		lua_pushinteger(L, 0);
 		lua_pushnil(L);
@@ -344,20 +347,20 @@ static int lsocket_recvfromb(lua_State *L) {
 		lua_pushinteger(L, port);
 		lua_pushinteger(L, 0);
 	}
-		
+
 	return 4;
 }
 
 /*
 ** nwritten, err = socket.sendto(fd, addr, port, string)
 */
-static int lsocket_sendto(lua_State *L) 
+static int lsocket_sendto(lua_State *L)
 {
 	size_t nwritten = 0;
 	size_t len;
 	const char *str = luaL_checklstring(L, 4, &len);
-	int err = socket_sendto(luaL_checkint(L, 1), str, len, 0, luaL_checkstring(L, 2), luaL_checkint(L, 3), &nwritten);
-	
+	int err = socket_sendto((int)luaL_checkinteger(L, 1), str, len, 0, luaL_checkstring(L, 2), (int)luaL_checkinteger(L, 3), &nwritten);
+
 	lua_pushinteger(L, nwritten);
 	lua_pushinteger(L, err);
 	return 2;
@@ -366,23 +369,23 @@ static int lsocket_sendto(lua_State *L)
 /*
 ** nwritten, err = socket.sendtob(fd, addr, port, buf, offset=0, len=#buf-offset)
 */
-static int lsocket_sendtob(lua_State *L) 
+static int lsocket_sendtob(lua_State *L)
 {
 	Buffer *buffer = buffer_lcheck(L, 4);
-	size_t offset = (size_t)luaL_optint(L, 5, 0);
+	size_t offset = (size_t)(int)luaL_optinteger(L, 5, 0);
 	size_t len = 0;
 	size_t nwritten = 0;
 	int err = 0;
-		
-	if (lua_gettop(L) >= 6) 
-		len = (size_t)luaL_checkint(L, 6);
+
+	if (lua_gettop(L) >= 6)
+		len = (size_t)(int)luaL_checkinteger(L, 6);
 	else if (offset <= buffer->datasiz)
 		len = buffer->datasiz - offset;
-	
-	if (offset <= buffer->datasiz && (offset + len) <= buffer->datasiz) 
-		err = socket_sendto(luaL_checkint(L, 1), 
-					buffer->data + offset, len, 0, 
-					luaL_checkstring(L, 2), luaL_checkint(L, 3), 
+
+	if (offset <= buffer->datasiz && (offset + len) <= buffer->datasiz)
+		err = socket_sendto((int)luaL_checkinteger(L, 1),
+					buffer->data + offset, len, 0,
+					luaL_checkstring(L, 2), (int)luaL_checkinteger(L, 3),
 					&nwritten);
 
 	lua_pushinteger(L, (int)nwritten);
@@ -394,7 +397,7 @@ static int lsocket_sendtob(lua_State *L)
 /*
 ** addr, port, err = socket.getpeername(fd)
 */
-static int lsocket_getpeername(lua_State *L) 
+static int lsocket_getpeername(lua_State *L)
 {
 	int fd = luaL_checkinteger(L, 1);
 	char addr[INET6_ADDRSTRLEN];
@@ -414,7 +417,7 @@ static int lsocket_getpeername(lua_State *L)
 /*
 ** addr, port, err = socket.getsockname(fd)
 */
-static int lsocket_getsockname(lua_State *L) 
+static int lsocket_getsockname(lua_State *L)
 {
 	int fd = luaL_checkinteger(L, 1);
 	char addr[INET6_ADDRSTRLEN];
@@ -434,10 +437,10 @@ static int lsocket_getsockname(lua_State *L)
 /*
 ** err = socket.setsocketopt(fd, optname, optvalue)
 */
-static int lsocket_setsocketopt(lua_State *L) 
+static int lsocket_setsocketopt(lua_State *L)
 {
-	int fd = luaL_checkint(L, 1);
-	int optname = luaL_checkint(L, 2);
+	int fd = (int)luaL_checkinteger(L, 1);
+	int optname = (int)luaL_checkinteger(L, 2);
 	union {
 		int b_val;
 		int i_val;
@@ -510,7 +513,7 @@ static int lsocket_setsocketopt(lua_State *L)
 /*
 ** ..., err = socket.getsocketopt(fd, optname)
 */
-static int lsocket_getsocketopt(lua_State *L) 
+static int lsocket_getsocketopt(lua_State *L)
 {
 	int fd = luaL_checkinteger(L, 1);
 	int optname = luaL_checkinteger(L, 2);
@@ -592,8 +595,8 @@ static int lsocket_getsocketopt(lua_State *L)
 */
 static int lsocket_setipopt(lua_State *L)
 {
-	int fd = luaL_checkint(L, 1);
-	int optname = luaL_checkint(L, 2);
+	int fd = (int)luaL_checkinteger(L, 1);
+	int optname = (int)luaL_checkinteger(L, 2);
 	union {
 		int i_val;
 		bool b_val;
@@ -667,10 +670,10 @@ static int lsocket_getipopt(lua_State *L)
 /*
 ** result, err = socket.settcpopt(fd, optname, optval)
 */
-static int lsocket_settcpopt(lua_State *L) 
+static int lsocket_settcpopt(lua_State *L)
 {
-	int fd = luaL_checkint(L, 1);
-	int optname = luaL_checkint(L, 2);
+	int fd = (int)luaL_checkinteger(L, 1);
+	int optname = (int)luaL_checkinteger(L, 2);
 	union {
 		int i_val;
 		bool b_val;
@@ -708,7 +711,7 @@ static int lsocket_settcpopt(lua_State *L)
 /*
 ** result, err = socket.gettcpopt(fd, optname)
 */
-static int lsocket_gettcpopt(lua_State *L) 
+static int lsocket_gettcpopt(lua_State *L)
 {
 	int fd = luaL_checkinteger(L, 1);
 	int optname = luaL_checkinteger(L, 2);
@@ -755,10 +758,10 @@ static int lsocket_gettcpopt(lua_State *L)
 /*
 ** err = sock.shutdown(fd, shut=sock.SHUT_RDWR)
 */
-static int lsocket_shutdown(lua_State *L) 
+static int lsocket_shutdown(lua_State *L)
 {
-	int fd = luaL_checkint(L, 1);
-	int how = luaL_optint(L, 2, SHUT_RDWR);
+	int fd = (int)luaL_checkinteger(L, 1);
+	int how = (int)luaL_optinteger(L, 2, SHUT_RDWR);
 	int err = socket_shutdown(fd, how);
 	lua_pushinteger(L, err);
 	return 1;
@@ -842,7 +845,7 @@ static const EnumReg enums[] = {
 	LENUM_NULL
 };
 
-int l_opensocket(lua_State *L) 
+int l_opensocket(lua_State *L)
 {
 	l_register_lib(L, "socket", funcs, enums);
 	return 0;

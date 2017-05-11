@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) Spyderj
+ * Copyright (C) spyder
  */
 
 
@@ -9,23 +9,8 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/wait.h>
-
-static lua_State *theL = NULL;
-
-static void sighandler(int sig)
-{
-	lua_State *L = theL;
-	int top = lua_gettop(L);
-	lua_pushlightuserdata(L, sighandler);
-	lua_gettable(L, LUA_REGISTRYINDEX);
-	lua_pushinteger(L, sig);
-	lua_gettable(L, -2);
-	if (lua_isfunction(L, -1)) {
-		lua_pushinteger(L, sig);
-		lua_call(L, 1, LUA_MULTRET);
-	}
-	lua_settop(L, top);
-}
+#include <sys/signalfd.h>
+#include <assert.h>
 
 static void on_sigchld(int sig)
 {
@@ -35,47 +20,12 @@ static void on_sigchld(int sig)
 }
 
 /*
-** err = signal.signal(sig, function (sig) end)
-*/
-int lsignal_signal(lua_State *L)
-{
-	int sig = luaL_checkint(L, 1);
-	
-	if (lua_type(L, 2) == LUA_TNUMBER) {
-		int value = (int)lua_tointeger(L, 2);
-		if (value == (int)SIG_DFL)
-			signal(sig, SIG_DFL);
-		else if (value == (int)SIG_IGN)
-			signal(sig, SIG_IGN);
-		else
-			luaL_error(L, "expecting function(or SIG_DFL/SIG_IGN) for argument #2");
-	} else {
-		if (!lua_isfunction(L, 2))
-			luaL_error(L, "expecting function(or SIG_DFL/SIG_IGN) for argument #2");
-	
-		lua_pushlightuserdata(L, sighandler);
-		lua_gettable(L, LUA_REGISTRYINDEX);
-		if (lua_isnil(L, -1)) {
-			lua_newtable(L);
-			lua_pushlightuserdata(L, sighandler);
-			lua_pushvalue(L, -2);
-			lua_settable(L, LUA_REGISTRYINDEX);
-		} 
-		lua_pushinteger(L, sig);
-		lua_pushvalue(L, 2);
-		lua_settable(L, -3);
-		signal(sig, sighandler);
-	}
-	return 0;
-}
-
-/*
 ** err = signal.kill(pid, sig)
 */
-int lsignal_kill(lua_State *L)
+static int lsignal_kill(lua_State *L)
 {
-	pid_t pid = (pid_t)luaL_checkint(L, 1);
-	int sig = luaL_checkint(L, 2);
+	pid_t pid = (pid_t)luaL_checkinteger(L, 1);
+	int sig = (int)luaL_checkinteger(L, 2);
 	int err = kill(pid, sig);
 	lua_pushinteger(L, err == 0 ? err : errno);
 	return 1;
@@ -84,20 +34,171 @@ int lsignal_kill(lua_State *L)
 /*
 ** signal.raise(sig)
 */
-int lsignal_raise(lua_State *L)
+static int lsignal_raise(lua_State *L)
 {
-	raise(luaL_checkint(L, 1));
+	raise((int)luaL_checkinteger(L, 1));
 	return 0;
 }
 
 /*
 ** signal.alarm(sec)
 */
-int lsignal_alarm(lua_State *L)
+static int lsignal_alarm(lua_State *L)
 {
-	alarm((unsigned)luaL_checkint(L, 1));
+	alarm((unsigned)luaL_checkinteger(L, 1));
 	return 0;
 }
+
+/*
+** * These are stoken from lua-posix with small modifications.
+*/
+
+static lua_State *signalL;
+
+static lua_Hook old_hook;
+static int old_mask;
+static int old_count;
+
+#define SIGNAL_QUEUE_MAX 25
+static volatile sig_atomic_t signal_pending, defer_signal;
+static volatile sig_atomic_t signal_count = 0;
+static volatile sig_atomic_t signals[SIGNAL_QUEUE_MAX];
+
+static void sig_handle (lua_State *L, lua_Debug *ar)
+{
+	/* Block all signals until we have run the Lua signal handler */
+	sigset_t mask, oldmask;
+	sigfillset(&mask);
+	sigprocmask(SIG_SETMASK, &mask, &oldmask);
+
+	lua_sethook(L, old_hook, old_mask, old_count);
+	assert(L == signalL);
+
+	lua_pushlightuserdata(L, &signalL);
+	lua_rawget(L, LUA_REGISTRYINDEX);
+
+	while (signal_count--)
+	{
+		sig_atomic_t signalno = signals[signal_count];
+		lua_pushinteger(L, signalno);
+		lua_gettable(L, -2);
+		lua_pushinteger(L, signalno);
+		if (lua_pcall(L, 1, 0, 0) != 0)
+			fprintf(stderr,"error in signal handler %ld: %s\n", (long)signalno, lua_tostring(L,-1));
+	}
+
+	signal_count = 0;  /* reset global to initial state */
+
+	/* Having run the Lua signal handler, restore original signal mask */
+	sigprocmask(SIG_SETMASK, &oldmask, NULL);
+	unused(ar);
+}
+
+static void sig_postpone (int i)
+{
+	if (defer_signal)
+	{
+		signal_pending = i;
+		return;
+	}
+	if (signalL == NULL || signal_count == SIGNAL_QUEUE_MAX)
+		return;
+	defer_signal++;
+	/* Queue signals */
+	signals[signal_count] = i;
+	signal_count ++;
+	old_hook = lua_gethook(signalL);
+	old_mask = lua_gethookmask(signalL);
+	old_count = lua_gethookcount(signalL);
+	lua_sethook(signalL, sig_handle, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, 1);
+	defer_signal--;
+	/* re-raise any pending signals */
+	if (defer_signal == 0 && signal_pending != 0) {
+		raise (signal_pending);
+		signal_pending = 0;
+	}
+}
+
+static int sig_handler_wrap (lua_State *L)
+{
+	int sig = luaL_checkinteger(L, lua_upvalueindex(1));
+	void (*handler)(int) = lua_touserdata(L, lua_upvalueindex(2));
+	handler(sig);
+	return 0;
+}
+
+/*
+** ret = signal.signal(sig, handler[, flags])
+** ret could be func/'default'/'ignore'
+** handler could be func/'default'/'ignore'
+*/
+static int lsignal_signal (lua_State *L)
+{
+	struct sigaction sa, oldsa;
+	int sig = luaL_checkinteger(L, 1);
+	int ret;
+	void (*handler)(int) = sig_postpone;
+
+	if (lua_type(L, 2) == LUA_TSTRING) {
+		const char *val = luaL_checkstring(L, 2);
+		if (strcmp(val, "ignore") == 0)
+			handler = SIG_IGN;
+		else if (strcmp(val, "default") == 0)
+			handler = SIG_DFL;
+		else
+			handler = NULL;
+	} else if (lua_type(L, 2) == LUA_TFUNCTION) {
+		if (lua_tocfunction(L, 2) == sig_handler_wrap) {
+			lua_getupvalue(L, 2, 1);
+			handler = lua_touserdata(L, -1);
+			lua_pop(L, 1);
+		}
+	} else {
+		handler = NULL;
+	}
+		
+	if (handler == NULL)
+		luaL_error(L, "expected function/'ingore'/'default' for argument #2");
+	
+	/* Set up C signal handler, getting old handler */
+	sa.sa_handler = handler;
+	sa.sa_flags = luaL_optinteger(L, 3, 0);
+	sigfillset(&sa.sa_mask);
+	ret = sigaction(sig, &sa, &oldsa);
+	if (ret == -1)
+		return 0;
+
+	/* Set Lua handler if necessary */
+	if (handler == sig_postpone)
+	{
+		lua_pushlightuserdata(L, &signalL); /* We could use an upvalue, but we need this for sig_handle anyway. */
+		lua_rawget(L, LUA_REGISTRYINDEX);
+		lua_pushvalue(L, 1);
+		lua_pushvalue(L, 2);
+		lua_rawset(L, -3);
+		lua_pop(L, 1);
+	}
+
+	/* Push old handler as result */
+	if (oldsa.sa_handler == sig_postpone)
+	{
+		lua_pushlightuserdata(L, &signalL);
+		lua_rawget(L, LUA_REGISTRYINDEX);
+		lua_pushvalue(L, 1);
+		lua_rawget(L, -2);
+	} else if (oldsa.sa_handler == SIG_DFL)
+		lua_pushstring(L, "default");
+	else if (oldsa.sa_handler == SIG_IGN)
+		lua_pushstring(L, "ignore");
+	else
+	{
+		lua_pushinteger(L, sig);
+		lua_pushlightuserdata(L, oldsa.sa_handler);
+		lua_pushcclosure(L, sig_handler_wrap, 2);
+	}
+	return 1;
+}
+
 
 static const EnumReg enums[] = {
 	LENUM(SIGABRT),
@@ -120,24 +221,42 @@ static const EnumReg enums[] = {
 	LENUM(SIGTTIN),
 	LENUM(SIGTTOU),
 	LENUM(SIGPROF),
-	{"SIG_DFL", (int)SIG_DFL},
-	{"SIG_IGN", (int)SIG_IGN},
+	LENUM(SIGVTALRM),
+#ifdef SA_NOCLDSTOP
+	LENUM(SA_NOCLDSTOP),
+#endif
+#ifdef SA_NOCLDWAIT
+	LENUM(SA_NOCLDWAIT),
+#endif
+#ifdef SA_RESETHAND
+	LENUM(SA_RESETHAND),
+#endif
+#ifdef SA_NODEFER
+	LENUM(SA_NODEFER),
+#endif
+
 	LENUM_NULL,
 };
 
 static const luaL_Reg funcs[] = {
-	{"signal", lsignal_signal},
 	{"raise", lsignal_raise},
 	{"kill", lsignal_kill},
 	{"alarm", lsignal_alarm},
+	{"signal", lsignal_signal},
 	{NULL, NULL},
 };
 
 int l_opensignal(lua_State *L)
-{
-	theL = L;
+{	
+	signalL = L;
+	
+	lua_pushlightuserdata(L, &signalL);
+	lua_newtable(L);
+	lua_rawset(L, LUA_REGISTRYINDEX);
+	
 	signal(SIGCHLD, on_sigchld);
 	signal(SIGPIPE, SIG_IGN);
 	l_register_lib(L, "signal", funcs, enums);
+	
 	return 0;
 }
