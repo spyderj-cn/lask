@@ -48,7 +48,6 @@ define Package/lask/install
 	$(INSTALL_DIR) $(1)/usr/sbin
 	$(INSTALL_DIR) $(1)/usr/lib/lua/tasklet
 	$(INSTALL_DIR) $(1)/usr/lib/lua/tasklet/channel
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/kpc/kpc.so $(1)/usr/lib/lua/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/contrib/cjson/cjson.so $(1)/usr/lib/lua
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/lask/std/_std.so $(1)/usr/lib/lua
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/lask/zlib/_zlib.so $(1)/usr/lib/lua
