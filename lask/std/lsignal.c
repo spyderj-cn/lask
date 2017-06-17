@@ -10,7 +10,6 @@
 #include <errno.h>
 #include <sys/wait.h>
 #include <sys/signalfd.h>
-#include <assert.h>
 
 static void on_sigchld(int sig)
 {
@@ -72,7 +71,6 @@ static void sig_handle (lua_State *L, lua_Debug *ar)
 	sigprocmask(SIG_SETMASK, &mask, &oldmask);
 
 	lua_sethook(L, old_hook, old_mask, old_count);
-	assert(L == signalL);
 
 	lua_pushlightuserdata(L, &signalL);
 	lua_rawget(L, LUA_REGISTRYINDEX);
