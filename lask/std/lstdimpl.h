@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) spyder
+ * Copyright (C) www.go-cloud.cn
  */
 
 #ifndef LSTDIMPL_H
@@ -184,6 +184,7 @@ int 		l_openpoll(lua_State *L);
 int 		l_openprctl(lua_State *L);
 int 		l_openrbtree(lua_State *L);
 int 		l_openiface(lua_State *L);
+int 		l_openmd5(lua_State *L);
 
 #if LUA_VERSION_NUM == 501
 void luaL_setfuncs (lua_State *L, const luaL_Reg *l, int nup);

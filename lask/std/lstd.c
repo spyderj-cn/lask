@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) spyder
+ * Copyright (C) www.go-cloud.cn
  */
 
 #include "lstdimpl.h"
@@ -132,6 +132,7 @@ int luaopen__std(lua_State *L)
 	l_openpoll(L);
 	l_openprctl(L);
 	l_openiface(L);
+	l_openmd5(L);
 
 	lua_pushcfunction(L, l_stdmem);
 	lua_setglobal(L, "stdmem");

@@ -1,5 +1,5 @@
 
-OBJS = lbitlib.o lbuffer.o lerrno.o lfs.o lmath.o los.o lreader.o lpoll.o lprctl.o liface.o\
+OBJS = lbitlib.o lbuffer.o lerrno.o lfs.o lmath.o los.o lreader.o lpoll.o lprctl.o liface.o lmd5.o\
 	lsignal.o lsocket.o lstat.o lstd.o lstring.o ltable.o ltime.o lsys.o lnetdb.o lcodec.o lfcntl.o
 INSTALL ?= install
 
